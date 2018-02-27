@@ -17,6 +17,8 @@
 
 package org.apache.flink.streaming.connectors.kinesis;
 
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.ClientConfigurationFactory;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.state.ListState;
@@ -97,6 +99,11 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 	/** Properties to parametrize settings such as AWS service region, initial position in stream,
 	 * shard list retrieval behaviours, etc. */
 	private final Properties configProps;
+
+	/**
+	 * Client configuration for the underlying AWS kinesis client.
+	 */
+	private final ClientConfiguration awsClientConfig;
 
 	/** User supplied deserialization schema to convert Kinesis byte messages to Flink objects. */
 	private final KinesisDeserializationSchema<T> deserializer;
@@ -179,6 +186,25 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 	 *           The properties used to configure AWS credentials, AWS region, and initial starting position.
 	 */
 	public FlinkKinesisConsumer(List<String> streams, KinesisDeserializationSchema<T> deserializer, Properties configProps) {
+		this(streams, deserializer, configProps, new ClientConfigurationFactory().getConfig());
+	}
+
+	/**
+	 * Creates a new Flink Kinesis Consumer.
+	 *
+	 * <p>The AWS credentials to be used, AWS region of the Kinesis streams, initial position to start streaming
+	 * from are configured with a {@link Properties} instance.</p>
+	 *
+	 * @param streams
+	 *           The AWS Kinesis streams to read from.
+	 * @param deserializer
+	 *           The keyed deserializer used to convert raw bytes of Kinesis records to Java objects.
+	 * @param configProps
+	 *           The properties used to configure AWS credentials, AWS region, and initial starting position.
+	 * @param awsClientConfig
+	 *			 The client configuration for the underlying AWS kinesis client.
+	 */
+	public FlinkKinesisConsumer(List<String> streams, KinesisDeserializationSchema<T> deserializer, Properties configProps, ClientConfiguration awsClientConfig) {
 		checkNotNull(streams, "streams can not be null");
 		checkArgument(streams.size() != 0, "must be consuming at least 1 stream");
 		checkArgument(!streams.contains(""), "stream names cannot be empty Strings");
@@ -188,6 +214,9 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 
 		// check the configuration properties for any conflicting settings
 		KinesisConfigUtil.validateConsumerConfiguration(this.configProps);
+
+		checkNotNull(awsClientConfig, "awsClientConfig can not be null");
+		this.awsClientConfig = awsClientConfig;
 
 		checkNotNull(deserializer, "deserializer can not be null");
 		checkArgument(
@@ -228,7 +257,7 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 		// all subtasks will run a fetcher, regardless of whether or not the subtask will initially have
 		// shards to subscribe to; fetchers will continuously poll for changes in the shard list, so all subtasks
 		// can potentially have new shards to subscribe to later on
-		KinesisDataFetcher<T> fetcher = createFetcher(streams, sourceContext, getRuntimeContext(), configProps, deserializer);
+		KinesisDataFetcher<T> fetcher = createFetcher(streams, sourceContext, getRuntimeContext(), configProps, awsClientConfig, deserializer);
 
 		// initial discovery
 		List<StreamShardHandle> allShards = fetcher.discoverNewShardsToSubscribe();
@@ -410,9 +439,11 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 			SourceFunction.SourceContext<T> sourceContext,
 			RuntimeContext runtimeContext,
 			Properties configProps,
+			ClientConfiguration awsClientConfig,
 			KinesisDeserializationSchema<T> deserializationSchema) {
 
-		return new KinesisDataFetcher<>(streams, sourceContext, runtimeContext, configProps, deserializationSchema, shardAssigner);
+		return new KinesisDataFetcher<>(
+			streams, sourceContext, runtimeContext, configProps, awsClientConfig, deserializationSchema, shardAssigner);
 	}
 
 	@VisibleForTesting

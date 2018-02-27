@@ -33,6 +33,8 @@ import org.apache.flink.streaming.connectors.kinesis.proxy.KinesisProxyInterface
 import org.apache.flink.streaming.connectors.kinesis.serialization.KinesisDeserializationSchema;
 import org.apache.flink.util.InstantiationUtil;
 
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.ClientConfigurationFactory;
 import com.amazonaws.services.kinesis.model.HashKeyRange;
 import com.amazonaws.services.kinesis.model.SequenceNumberRange;
 import com.amazonaws.services.kinesis.model.Shard;
@@ -175,11 +177,39 @@ public class KinesisDataFetcher<T> {
 	 * @param runtimeContext this subtask's runtime context
 	 * @param configProps the consumer configuration properties
 	 * @param deserializationSchema deserialization schema
+	 * @param shardAssigner the shard assigner
 	 */
 	public KinesisDataFetcher(List<String> streams,
 							SourceFunction.SourceContext<T> sourceContext,
 							RuntimeContext runtimeContext,
 							Properties configProps,
+							KinesisDeserializationSchema<T> deserializationSchema,
+							KinesisShardAssigner shardAssigner) {
+		this(streams,
+			sourceContext,
+			runtimeContext,
+			configProps,
+			new ClientConfigurationFactory().getConfig(),
+			deserializationSchema,
+			shardAssigner);
+	}
+
+	/**
+	 * Creates a Kinesis Data Fetcher.
+	 *
+	 * @param streams the streams to subscribe to
+	 * @param sourceContext context of the source function
+	 * @param runtimeContext this subtask's runtime context
+	 * @param configProps the consumer configuration properties
+	 * @param awsClientConfig the client configuration for the underlying AWS kinesis client
+	 * @param deserializationSchema deserialization schema
+	 * @param shardAssigner the shard assigner
+	 */
+	public KinesisDataFetcher(List<String> streams,
+							SourceFunction.SourceContext<T> sourceContext,
+							RuntimeContext runtimeContext,
+							Properties configProps,
+							ClientConfiguration awsClientConfig,
 							KinesisDeserializationSchema<T> deserializationSchema,
 							KinesisShardAssigner shardAssigner) {
 		this(streams,
@@ -192,7 +222,7 @@ public class KinesisDataFetcher<T> {
 			new AtomicReference<>(),
 			new ArrayList<>(),
 			createInitialSubscribedStreamsToLastDiscoveredShardsState(streams),
-			KinesisProxy.create(configProps));
+			KinesisProxy.create(configProps, awsClientConfig));
 	}
 
 	@VisibleForTesting
