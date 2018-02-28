@@ -17,6 +17,16 @@
 
 package org.apache.flink.streaming.connectors.kinesis;
 
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
+
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.ClientConfigurationFactory;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.state.ListState;
@@ -44,20 +54,8 @@ import org.apache.flink.streaming.connectors.kinesis.serialization.KinesisDeseri
 import org.apache.flink.streaming.connectors.kinesis.util.KinesisConfigUtil;
 import org.apache.flink.streaming.util.serialization.DeserializationSchema;
 import org.apache.flink.util.InstantiationUtil;
-
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.ClientConfigurationFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-
-import static org.apache.flink.util.Preconditions.checkArgument;
-import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * The Flink Kinesis Consumer is an exactly-once parallel streaming data source that subscribes to multiple AWS Kinesis
@@ -100,13 +98,13 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 	 * shard list retrieval behaviours, etc. */
 	private final Properties configProps;
 
+	/** User supplied deserialization schema to convert Kinesis byte messages to Flink objects. */
+	private final KinesisDeserializationSchema<T> deserializer;
+
 	/**
 	 * Client configuration for the underlying AWS kinesis client.
 	 */
-	private final ClientConfiguration awsClientConfig;
-
-	/** User supplied deserialization schema to convert Kinesis byte messages to Flink objects. */
-	private final KinesisDeserializationSchema<T> deserializer;
+	private ClientConfiguration awsClientConfig = new ClientConfigurationFactory().getConfig();
 
 	/**
 	 * The function that determines which subtask a shard should be assigned to.
@@ -186,25 +184,6 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 	 *           The properties used to configure AWS credentials, AWS region, and initial starting position.
 	 */
 	public FlinkKinesisConsumer(List<String> streams, KinesisDeserializationSchema<T> deserializer, Properties configProps) {
-		this(streams, deserializer, configProps, new ClientConfigurationFactory().getConfig());
-	}
-
-	/**
-	 * Creates a new Flink Kinesis Consumer.
-	 *
-	 * <p>The AWS credentials to be used, AWS region of the Kinesis streams, initial position to start streaming
-	 * from are configured with a {@link Properties} instance.</p>
-	 *
-	 * @param streams
-	 *           The AWS Kinesis streams to read from.
-	 * @param deserializer
-	 *           The keyed deserializer used to convert raw bytes of Kinesis records to Java objects.
-	 * @param configProps
-	 *           The properties used to configure AWS credentials, AWS region, and initial starting position.
-	 * @param awsClientConfig
-	 *			 The client configuration for the underlying AWS kinesis client.
-	 */
-	public FlinkKinesisConsumer(List<String> streams, KinesisDeserializationSchema<T> deserializer, Properties configProps, ClientConfiguration awsClientConfig) {
 		checkNotNull(streams, "streams can not be null");
 		checkArgument(streams.size() != 0, "must be consuming at least 1 stream");
 		checkArgument(!streams.contains(""), "stream names cannot be empty Strings");
@@ -214,9 +193,6 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 
 		// check the configuration properties for any conflicting settings
 		KinesisConfigUtil.validateConsumerConfiguration(this.configProps);
-
-		checkNotNull(awsClientConfig, "awsClientConfig can not be null");
-		this.awsClientConfig = awsClientConfig;
 
 		checkNotNull(deserializer, "deserializer can not be null");
 		checkArgument(
@@ -245,6 +221,18 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 	public void setShardAssigner(KinesisShardAssigner shardAssigner) {
 		this.shardAssigner = checkNotNull(shardAssigner, "function can not be null");
 		ClosureCleaner.clean(shardAssigner, true);
+	}
+
+	public ClientConfiguration getAwsClientConfig() {
+		return awsClientConfig;
+	}
+
+	/**
+	 * Provide client configuration for the underlying AWS kinesis client.
+	 * @param awsClientConfig
+	 */
+	public void setAwsClientConfig(ClientConfiguration awsClientConfig) {
+		this.awsClientConfig = checkNotNull(awsClientConfig, "awsClientConfig can not be null");
 	}
 
 	// ------------------------------------------------------------------------
