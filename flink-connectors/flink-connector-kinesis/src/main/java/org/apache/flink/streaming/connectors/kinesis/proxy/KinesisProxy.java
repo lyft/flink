@@ -22,6 +22,8 @@ import org.apache.flink.streaming.connectors.kinesis.model.StreamShardHandle;
 import org.apache.flink.streaming.connectors.kinesis.util.AWSUtil;
 
 import com.amazonaws.AmazonServiceException;
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.ClientConfigurationFactory;
 import com.amazonaws.services.kinesis.AmazonKinesisClient;
 import com.amazonaws.services.kinesis.model.DescribeStreamRequest;
 import com.amazonaws.services.kinesis.model.DescribeStreamResult;
@@ -116,14 +118,18 @@ public class KinesisProxy implements KinesisProxyInterface {
 	private final int getShardIteratorMaxAttempts;
 
 	/**
-	 * Create a new KinesisProxy based on the supplied configuration properties.
+	 * Create a new KinesisProxy based on the supplied configuration and client.
 	 *
 	 * @param configProps configuration properties containing AWS credential and AWS region info
+	 * @param kinesisClient the underlying kinesis client
 	 */
-	private KinesisProxy(Properties configProps) {
-		checkNotNull(configProps);
 
-		this.kinesisClient = AWSUtil.createKinesisClient(configProps);
+	private KinesisProxy(Properties configProps, AmazonKinesisClient kinesisClient) {
+
+		checkNotNull(configProps);
+		checkNotNull(kinesisClient);
+
+		this.kinesisClient = kinesisClient;
 
 		this.describeStreamBaseBackoffMillis = Long.valueOf(
 			configProps.getProperty(
@@ -171,7 +177,6 @@ public class KinesisProxy implements KinesisProxyInterface {
 			configProps.getProperty(
 				ConsumerConfigConstants.SHARD_GETITERATOR_RETRIES,
 				Long.toString(ConsumerConfigConstants.DEFAULT_SHARD_GETITERATOR_RETRIES)));
-
 	}
 
 	/**
@@ -181,7 +186,18 @@ public class KinesisProxy implements KinesisProxyInterface {
 	 * @return the created kinesis proxy
 	 */
 	public static KinesisProxyInterface create(Properties configProps) {
-		return new KinesisProxy(configProps);
+		return KinesisProxy.create(configProps, new ClientConfigurationFactory().getConfig());
+	}
+
+	/**
+	 * Creates a Kinesis proxy.
+	 *
+	 * @param configProps configuration properties
+	 * @param awsClientConfig client configuration for the underlying AWS kinesis client
+	 * @return the created kinesis proxy
+	 */
+	public static KinesisProxyInterface create(Properties configProps, ClientConfiguration awsClientConfig) {
+		return new KinesisProxy(configProps, AWSUtil.createKinesisClient(configProps, awsClientConfig));
 	}
 
 	/**

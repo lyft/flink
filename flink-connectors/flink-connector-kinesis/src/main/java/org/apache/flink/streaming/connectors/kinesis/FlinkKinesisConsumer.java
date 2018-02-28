@@ -45,6 +45,8 @@ import org.apache.flink.streaming.connectors.kinesis.util.KinesisConfigUtil;
 import org.apache.flink.streaming.util.serialization.DeserializationSchema;
 import org.apache.flink.util.InstantiationUtil;
 
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.ClientConfigurationFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -100,6 +102,11 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 
 	/** User supplied deserialization schema to convert Kinesis byte messages to Flink objects. */
 	private final KinesisDeserializationSchema<T> deserializer;
+
+	/**
+	 * Client configuration for the underlying AWS kinesis client.
+	 */
+	private ClientConfiguration awsClientConfig = new ClientConfigurationFactory().getConfig();
 
 	/**
 	 * The function that determines which subtask a shard should be assigned to.
@@ -218,6 +225,18 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 		ClosureCleaner.clean(shardAssigner, true);
 	}
 
+	public ClientConfiguration getAwsClientConfig() {
+		return awsClientConfig;
+	}
+
+	/**
+	 * Provide client configuration for the underlying AWS kinesis client.
+	 * @param awsClientConfig
+	 */
+	public void setAwsClientConfig(ClientConfiguration awsClientConfig) {
+		this.awsClientConfig = checkNotNull(awsClientConfig, "awsClientConfig can not be null");
+	}
+
 	// ------------------------------------------------------------------------
 	//  Source life cycle
 	// ------------------------------------------------------------------------
@@ -228,7 +247,7 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 		// all subtasks will run a fetcher, regardless of whether or not the subtask will initially have
 		// shards to subscribe to; fetchers will continuously poll for changes in the shard list, so all subtasks
 		// can potentially have new shards to subscribe to later on
-		KinesisDataFetcher<T> fetcher = createFetcher(streams, sourceContext, getRuntimeContext(), configProps, deserializer);
+		KinesisDataFetcher<T> fetcher = createFetcher(streams, sourceContext, getRuntimeContext(), configProps, awsClientConfig, deserializer);
 
 		// initial discovery
 		List<StreamShardHandle> allShards = fetcher.discoverNewShardsToSubscribe();
@@ -410,9 +429,11 @@ public class FlinkKinesisConsumer<T> extends RichParallelSourceFunction<T> imple
 			SourceFunction.SourceContext<T> sourceContext,
 			RuntimeContext runtimeContext,
 			Properties configProps,
+			ClientConfiguration awsClientConfig,
 			KinesisDeserializationSchema<T> deserializationSchema) {
 
-		return new KinesisDataFetcher<>(streams, sourceContext, runtimeContext, configProps, deserializationSchema, shardAssigner);
+		return new KinesisDataFetcher<>(
+			streams, sourceContext, runtimeContext, configProps, awsClientConfig, deserializationSchema, shardAssigner);
 	}
 
 	@VisibleForTesting
