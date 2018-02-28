@@ -17,6 +17,7 @@
 
 package org.apache.flink.streaming.connectors.kinesis.proxy;
 
+import com.amazonaws.ClientConfigurationFactory;
 import org.apache.flink.streaming.connectors.kinesis.config.ConsumerConfigConstants;
 import org.apache.flink.streaming.connectors.kinesis.model.StreamShardHandle;
 import org.apache.flink.streaming.connectors.kinesis.util.AWSUtil;
@@ -179,32 +180,13 @@ public class KinesisProxy implements KinesisProxyInterface {
 	}
 
 	/**
-	 * Create a new KinesisProxy based on the supplied configuration.
-	 *
-	 * @param configProps configuration properties containing AWS credential and AWS region info
-	 * @param awsClientConfig client configuration for the underlying AWS kinesis client
-	 */
-	private KinesisProxy(Properties configProps, ClientConfiguration awsClientConfig) {
-		this(configProps, AWSUtil.createKinesisClient(configProps, awsClientConfig));
-	}
-
-	/**
-	 * Create a new KinesisProxy based on the supplied configuration.
-	 *
-	 * @param configProps configuration properties containing AWS credential and AWS region info
-	 */
-	private KinesisProxy(Properties configProps) {
-		this(configProps, AWSUtil.createKinesisClient(configProps));
-	}
-
-	/**
 	 * Creates a Kinesis proxy.
 	 *
 	 * @param configProps configuration properties
 	 * @return the created kinesis proxy
 	 */
 	public static KinesisProxyInterface create(Properties configProps) {
-		return new KinesisProxy(configProps);
+		return KinesisProxy.create(configProps, new ClientConfigurationFactory().getConfig());
 	}
 
 	/**
@@ -215,7 +197,7 @@ public class KinesisProxy implements KinesisProxyInterface {
 	 * @return the created kinesis proxy
 	 */
 	public static KinesisProxyInterface create(Properties configProps, ClientConfiguration awsClientConfig) {
-		return new KinesisProxy(configProps, awsClientConfig);
+		return new KinesisProxy(configProps, AWSUtil.createKinesisClient(configProps, awsClientConfig));
 	}
 
 	/**
