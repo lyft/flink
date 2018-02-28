@@ -36,6 +36,7 @@ import org.apache.flink.streaming.connectors.kinesis.testutils.TestableKinesisDa
 import org.apache.flink.streaming.util.serialization.SimpleStringSchema;
 import org.apache.flink.util.TestLogger;
 
+import com.amazonaws.ClientConfiguration;
 import com.amazonaws.services.kinesis.model.HashKeyRange;
 import com.amazonaws.services.kinesis.model.SequenceNumberRange;
 import com.amazonaws.services.kinesis.model.Shard;
@@ -583,6 +584,7 @@ public class KinesisDataFetcherTest extends TestLogger {
 				SourceFunction.SourceContext<T> sourceContext,
 				RuntimeContext runtimeContext,
 				Properties configProps,
+				ClientConfiguration awsClientConfig,
 				KinesisDeserializationSchema<T> deserializationSchema) {
 			return fetcher;
 		}

@@ -40,6 +40,7 @@ import org.apache.flink.streaming.util.migration.MigrationTestUtil;
 import org.apache.flink.streaming.util.migration.MigrationVersion;
 import org.apache.flink.streaming.util.serialization.SimpleStringSchema;
 
+import com.amazonaws.ClientConfiguration;
 import com.amazonaws.services.kinesis.model.SequenceNumberRange;
 import com.amazonaws.services.kinesis.model.Shard;
 import org.junit.Ignore;
@@ -402,6 +403,7 @@ public class FlinkKinesisConsumerMigrationTest {
 				SourceContext<T> sourceContext,
 				RuntimeContext runtimeContext,
 				Properties configProps,
+				ClientConfiguration awsClientConfig,
 				KinesisDeserializationSchema<T> deserializer) {
 			return mockFetcher;
 		}
