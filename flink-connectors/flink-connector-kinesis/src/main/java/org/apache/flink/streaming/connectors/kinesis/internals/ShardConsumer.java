@@ -195,14 +195,14 @@ public class ShardConsumer<T> implements Runnable {
 					// we can close this consumer thread once we've reached the end of the subscribed shard
 					break;
 				} else {
-				if (fetchIntervalMillis != 0) {
-						long elapsedTimeNanos = System.nanoTime() - lastTimeNanos;
-						long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
-						if (sleepTimeMillis > 0) {
-							Thread.sleep(sleepTimeMillis);
+					if (fetchIntervalMillis != 0) {
+							long elapsedTimeNanos = System.nanoTime() - lastTimeNanos;
+							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
+							if (sleepTimeMillis > 0) {
+								Thread.sleep(sleepTimeMillis);
+							}
+							lastTimeNanos = System.nanoTime();
 						}
-						lastTimeNanos = System.nanoTime();
-					}
 
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
 
