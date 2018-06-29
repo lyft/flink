@@ -53,6 +53,10 @@ public class ShardConsumer<T> implements Runnable {
 
 	private static final Logger LOG = LoggerFactory.getLogger(ShardConsumer.class);
 
+	// AWS Kinesis has a read limit of 2 Mb/sec
+	// https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
+	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1000000L;
+
 	private final KinesisDeserializationSchema<T> deserializer;
 
 	private final KinesisProxyInterface kinesis;
@@ -63,8 +67,10 @@ public class ShardConsumer<T> implements Runnable {
 
 	private final StreamShardHandle subscribedShard;
 
-	private final int maxNumberOfRecordsPerFetch;
+
 	private final long fetchIntervalMillis;
+	private final boolean useAdaptiveReads;
+	private int maxNumberOfRecordsPerFetch;
 
 	private SequenceNumber lastSequenceNum;
 
@@ -113,6 +119,9 @@ public class ShardConsumer<T> implements Runnable {
 		this.fetchIntervalMillis = Long.valueOf(consumerConfig.getProperty(
 			ConsumerConfigConstants.SHARD_GETRECORDS_INTERVAL_MILLIS,
 			Long.toString(ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_INTERVAL_MILLIS)));
+		this.useAdaptiveReads = Boolean.valueOf(consumerConfig.getProperty(
+			ConsumerConfigConstants.SHARD_USE_ADAPTIVE_READS,
+			Boolean.toString(ConsumerConfigConstants.DEFAULT_SHARD_USE_ADAPTIVE_READS)));
 
 		if (lastSequenceNum.equals(SentinelSequenceNumber.SENTINEL_AT_TIMESTAMP_SEQUENCE_NUM.get())) {
 			String timestamp = consumerConfig.getProperty(ConsumerConfigConstants.STREAM_INITIAL_TIMESTAMP);
@@ -187,6 +196,9 @@ public class ShardConsumer<T> implements Runnable {
 				}
 			}
 
+			long recordBatchSizeBytes = 0L;
+			long averageRecordSizeBytes = 0L;
+
 			long lastTimeNanos = 0;
 			while (isRunning()) {
 				if (nextShardItr == null) {
@@ -204,6 +216,17 @@ public class ShardConsumer<T> implements Runnable {
 							lastTimeNanos = System.nanoTime();
 						}
 
+					// Adjust number of records to fetch from the shard depending on current average record size
+					// to optimize 2 Mb / sec read limits
+					if (useAdaptiveReads) {
+						if (averageRecordSizeBytes != 0 && fetchIntervalMillis != 0) {
+							maxNumberOfRecordsPerFetch = (int) (KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / (averageRecordSizeBytes * 1000L / fetchIntervalMillis));
+
+							// Ensure the value is not more than 10000L
+							maxNumberOfRecordsPerFetch = maxNumberOfRecordsPerFetch <= ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX ?
+									maxNumberOfRecordsPerFetch : ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX;
+						}
+					}
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
 
 					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
@@ -213,7 +236,12 @@ public class ShardConsumer<T> implements Runnable {
 						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
 
 					for (UserRecord record : fetchedRecords) {
+						recordBatchSizeBytes += record.getData().remaining();
 						deserializeRecordForCollectionAndUpdateState(record);
+					}
+
+					if (useAdaptiveReads && fetchedRecords.size() != 0) {
+						averageRecordSizeBytes = recordBatchSizeBytes / fetchedRecords.size();
 					}
 
 					nextShardItr = getRecordsResult.getNextShardIterator();
