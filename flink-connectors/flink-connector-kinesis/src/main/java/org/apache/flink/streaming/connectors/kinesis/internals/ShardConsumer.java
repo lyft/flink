@@ -235,6 +235,9 @@ public class ShardConsumer<T> implements Runnable {
 						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
 						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
 
+					recordBatchSizeBytes = 0L;
+					averageRecordSizeBytes = 0L;
+
 					for (UserRecord record : fetchedRecords) {
 						recordBatchSizeBytes += record.getData().remaining();
 						deserializeRecordForCollectionAndUpdateState(record);
