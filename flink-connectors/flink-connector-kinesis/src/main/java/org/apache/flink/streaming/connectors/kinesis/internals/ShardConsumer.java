@@ -196,9 +196,6 @@ public class ShardConsumer<T> implements Runnable {
 				}
 			}
 
-			long recordBatchSizeBytes = 0L;
-			long averageRecordSizeBytes = 0L;
-
 			long lastTimeNanos = 0;
 			while (isRunning()) {
 				if (nextShardItr == null) {
@@ -216,6 +213,26 @@ public class ShardConsumer<T> implements Runnable {
 							lastTimeNanos = System.nanoTime();
 						}
 
+					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
+
+					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
+					List<UserRecord> fetchedRecords = deaggregateRecords(
+						getRecordsResult.getRecords(),
+						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
+						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
+
+					long recordBatchSizeBytes = 0L;
+					long averageRecordSizeBytes = 0L;
+
+					for (UserRecord record : fetchedRecords) {
+						recordBatchSizeBytes += record.getData().remaining();
+						deserializeRecordForCollectionAndUpdateState(record);
+					}
+
+					if (useAdaptiveReads && fetchedRecords.size() != 0) {
+						averageRecordSizeBytes = recordBatchSizeBytes / fetchedRecords.size();
+					}
+
 					// Adjust number of records to fetch from the shard depending on current average record size
 					// to optimize 2 Mb / sec read limits
 					if (useAdaptiveReads) {
@@ -226,25 +243,6 @@ public class ShardConsumer<T> implements Runnable {
 							maxNumberOfRecordsPerFetch = maxNumberOfRecordsPerFetch <= ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX ?
 									maxNumberOfRecordsPerFetch : ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX;
 						}
-					}
-					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
-
-					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
-					List<UserRecord> fetchedRecords = deaggregateRecords(
-						getRecordsResult.getRecords(),
-						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
-						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
-
-					recordBatchSizeBytes = 0L;
-					averageRecordSizeBytes = 0L;
-
-					for (UserRecord record : fetchedRecords) {
-						recordBatchSizeBytes += record.getData().remaining();
-						deserializeRecordForCollectionAndUpdateState(record);
-					}
-
-					if (useAdaptiveReads && fetchedRecords.size() != 0) {
-						averageRecordSizeBytes = recordBatchSizeBytes / fetchedRecords.size();
 					}
 
 					nextShardItr = getRecordsResult.getNextShardIterator();
