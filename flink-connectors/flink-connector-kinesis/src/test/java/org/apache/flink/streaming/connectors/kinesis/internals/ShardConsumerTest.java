@@ -138,4 +138,56 @@ public class ShardConsumerTest {
 			subscribedShardsStateUnderTest.get(0).getLastProcessedSequenceNum());
 	}
 
+	@Test
+	public void testCorrectNumOfCollectedRecordsAndUpdatedStateWithAdaptiveReads() {
+		Properties consumerProperties = new Properties();
+		consumerProperties.put("flink.shard.use.adaptive.reads", "true");
+		StreamShardHandle fakeToBeConsumedShard = new StreamShardHandle(
+			"fakeStream",
+			new Shard()
+				.withShardId(KinesisShardIdGenerator.generateFromShardOrder(0))
+				.withHashKeyRange(
+					new HashKeyRange()
+						.withStartingHashKey("0")
+						.withEndingHashKey(new BigInteger(StringUtils.repeat("FF", 16), 16).toString())));
+
+		LinkedList<KinesisStreamShardState> subscribedShardsStateUnderTest = new LinkedList<>();
+		subscribedShardsStateUnderTest.add(
+			new KinesisStreamShardState(KinesisDataFetcher.convertToStreamShardMetadata(fakeToBeConsumedShard),
+				fakeToBeConsumedShard, new SequenceNumber("fakeStartingState")));
+
+		TestSourceContext<String> sourceContext = new TestSourceContext<>();
+
+		TestableKinesisDataFetcher<String> fetcher =
+			new TestableKinesisDataFetcher<>(
+				Collections.singletonList("fakeStream"),
+				sourceContext,
+				consumerProperties,
+				new KinesisDeserializationSchemaWrapper<>(new SimpleStringSchema()),
+				10,
+				2,
+				new AtomicReference<>(),
+				subscribedShardsStateUnderTest,
+				KinesisDataFetcher.createInitialSubscribedStreamsToLastDiscoveredShardsState(Collections.singletonList("fakeStream")),
+				Mockito.mock(KinesisProxyInterface.class));
+
+		new ShardConsumer<>(
+			fetcher,
+			0,
+			subscribedShardsStateUnderTest.get(0).getStreamShardHandle(),
+			subscribedShardsStateUnderTest.get(0).getLastProcessedSequenceNum(),
+			// Start with inital number of records per batch as 10
+			// Make 2 calls to getRecords
+			// Each record is of size 10 Kb
+			FakeKinesisBehavioursFactory.initialNumOfRecordsAfterNumOfGetRecordsCallsWithAdaptiveReads(10, 2)).run();
+
+		// Avg record size for first batch --> 10 * 10 Kb/10 = 10 Kb
+		// Number of records fetched in second batch --> 2 Mb/10Kb * 5 = 40
+		// Total number of records = 10 + 40 = 50
+		assertEquals(50, sourceContext.getCollectedOutputs().size());
+		assertEquals(
+			SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get(),
+			subscribedShardsStateUnderTest.get(0).getLastProcessedSequenceNum());
+	}
+
 }

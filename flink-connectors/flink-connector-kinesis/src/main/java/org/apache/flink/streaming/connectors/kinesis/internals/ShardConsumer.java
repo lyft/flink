@@ -55,7 +55,7 @@ public class ShardConsumer<T> implements Runnable {
 
 	// AWS Kinesis has a read limit of 2 Mb/sec
 	// https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
-	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1000000L;
+	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1024L * 1024L;
 
 	private final KinesisDeserializationSchema<T> deserializer;
 
