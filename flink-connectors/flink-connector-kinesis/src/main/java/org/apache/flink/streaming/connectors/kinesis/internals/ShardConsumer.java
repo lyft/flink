@@ -55,7 +55,7 @@ public class ShardConsumer<T> implements Runnable {
 
 	// AWS Kinesis has a read limit of 2 Mb/sec
 	// https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
-	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1000000L;
+	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1024L * 1024L;
 
 	private final KinesisDeserializationSchema<T> deserializer;
 
@@ -196,9 +196,6 @@ public class ShardConsumer<T> implements Runnable {
 				}
 			}
 
-			long recordBatchSizeBytes = 0L;
-			long averageRecordSizeBytes = 0L;
-
 			long lastTimeNanos = 0;
 			while (isRunning()) {
 				if (nextShardItr == null) {
@@ -216,6 +213,26 @@ public class ShardConsumer<T> implements Runnable {
 							lastTimeNanos = System.nanoTime();
 						}
 
+					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
+
+					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
+					List<UserRecord> fetchedRecords = deaggregateRecords(
+						getRecordsResult.getRecords(),
+						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
+						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
+
+					long recordBatchSizeBytes = 0L;
+					long averageRecordSizeBytes = 0L;
+
+					for (UserRecord record : fetchedRecords) {
+						recordBatchSizeBytes += record.getData().remaining();
+						deserializeRecordForCollectionAndUpdateState(record);
+					}
+
+					if (useAdaptiveReads && fetchedRecords.size() != 0) {
+						averageRecordSizeBytes = recordBatchSizeBytes / fetchedRecords.size();
+					}
+
 					// Adjust number of records to fetch from the shard depending on current average record size
 					// to optimize 2 Mb / sec read limits
 					if (useAdaptiveReads) {
@@ -226,22 +243,6 @@ public class ShardConsumer<T> implements Runnable {
 							maxNumberOfRecordsPerFetch = maxNumberOfRecordsPerFetch <= ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX ?
 									maxNumberOfRecordsPerFetch : ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX;
 						}
-					}
-					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
-
-					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
-					List<UserRecord> fetchedRecords = deaggregateRecords(
-						getRecordsResult.getRecords(),
-						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
-						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
-
-					for (UserRecord record : fetchedRecords) {
-						recordBatchSizeBytes += record.getData().remaining();
-						deserializeRecordForCollectionAndUpdateState(record);
-					}
-
-					if (useAdaptiveReads && fetchedRecords.size() != 0) {
-						averageRecordSizeBytes = recordBatchSizeBytes / fetchedRecords.size();
 					}
 
 					nextShardItr = getRecordsResult.getNextShardIterator();
