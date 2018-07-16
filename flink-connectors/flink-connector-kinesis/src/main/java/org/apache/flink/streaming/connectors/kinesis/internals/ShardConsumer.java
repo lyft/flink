@@ -57,8 +57,6 @@ public class ShardConsumer<T> implements Runnable {
 	// https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
 	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1024L * 1024L;
 
-	private static final long SECONDS_TO_NANOS_MULTIPLIER = 1000L * 1000L * 1000L;
-
 	private final KinesisDeserializationSchema<T> deserializer;
 
 	private final KinesisProxyInterface kinesis;
@@ -198,7 +196,7 @@ public class ShardConsumer<T> implements Runnable {
 				}
 			}
 
-			long lastTimeNanos = System.nanoTime();
+			long lastTimeNanos = 0;
 			while (isRunning()) {
 				if (nextShardItr == null) {
 					fetcherRef.updateState(subscribedShardStateIndex, SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get());
