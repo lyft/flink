@@ -197,6 +197,7 @@ public class ShardConsumer<T> implements Runnable {
 			}
 
 			long lastTimeNanos = 0;
+			long runLoopTimeSeconds = 0;
 			while (isRunning()) {
 				if (nextShardItr == null) {
 					fetcherRef.updateState(subscribedShardStateIndex, SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get());
@@ -204,15 +205,6 @@ public class ShardConsumer<T> implements Runnable {
 					// we can close this consumer thread once we've reached the end of the subscribed shard
 					break;
 				} else {
-					if (fetchIntervalMillis != 0) {
-							long elapsedTimeNanos = System.nanoTime() - lastTimeNanos;
-							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
-							if (sleepTimeMillis > 0) {
-								Thread.sleep(sleepTimeMillis);
-							}
-							lastTimeNanos = System.nanoTime();
-						}
-
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
 
 					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
@@ -236,14 +228,29 @@ public class ShardConsumer<T> implements Runnable {
 					// Adjust number of records to fetch from the shard depending on current average record size
 					// to optimize 2 Mb / sec read limits
 					if (useAdaptiveReads) {
-						if (averageRecordSizeBytes != 0 && fetchIntervalMillis != 0) {
-							maxNumberOfRecordsPerFetch = (int) (KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / (averageRecordSizeBytes * 1000L / fetchIntervalMillis));
+						if (averageRecordSizeBytes != 0 && runLoopTimeSeconds != 0) {
+							maxNumberOfRecordsPerFetch = (int) (KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / (averageRecordSizeBytes / runLoopTimeSeconds));
 
 							// Ensure the value is not more than 10000L
 							maxNumberOfRecordsPerFetch = maxNumberOfRecordsPerFetch <= ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX ?
 									maxNumberOfRecordsPerFetch : ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX;
 						}
 					}
+
+					if (fetchIntervalMillis != 0) {
+							long preSleepTimeNanos = System.nanoTime();
+							long elapsedTimeNanos = preSleepTimeNanos - lastTimeNanos;
+							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
+
+							if (sleepTimeMillis > 0) {
+								Thread.sleep(sleepTimeMillis);
+							}
+							long postSleepTimeNanos = System.nanoTime();
+
+							runLoopTimeSeconds = (elapsedTimeNanos + (postSleepTimeNanos - preSleepTimeNanos)) / 1_000_000_000;
+							lastTimeNanos = postSleepTimeNanos;
+					}
+
 
 					nextShardItr = getRecordsResult.getNextShardIterator();
 				}
