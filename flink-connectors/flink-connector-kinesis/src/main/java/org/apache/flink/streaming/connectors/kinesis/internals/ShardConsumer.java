@@ -206,18 +206,17 @@ public class ShardConsumer<T> implements Runnable {
 				} else {
 					long runLoopTimeSeconds = 0;
 					if (fetchIntervalMillis != 0) {
-							long elapsedTimeNanos = System.nanoTime() - lastTimeNanos;
+							long preSleepTimeNanos = System.nanoTime();
+							long elapsedTimeNanos = preSleepTimeNanos - lastTimeNanos;
 							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
 
-							// Time the sleep
-							long sleepStartTimeMillis = System.nanoTime();
 							if (sleepTimeMillis > 0) {
 								Thread.sleep(sleepTimeMillis);
 							}
-							long sleepEndTimeMillis = System.nanoTime();
+							long postSleepTimeNanos = System.nanoTime();
 
-							runLoopTimeSeconds = (elapsedTimeNanos + (sleepEndTimeMillis - sleepStartTimeMillis)) / 1_000_000_000;
-							lastTimeNanos = System.nanoTime();
+							runLoopTimeSeconds = (elapsedTimeNanos + (postSleepTimeNanos - preSleepTimeNanos)) / 1_000_000_000;
+							lastTimeNanos = postSleepTimeNanos;
 						}
 
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
