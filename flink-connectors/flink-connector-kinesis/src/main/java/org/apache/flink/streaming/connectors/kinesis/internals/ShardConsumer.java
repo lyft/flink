@@ -57,6 +57,8 @@ public class ShardConsumer<T> implements Runnable {
 	// https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
 	private static final long KINESIS_SHARD_BYTES_PER_SECOND_LIMIT = 2 * 1024L * 1024L;
 
+	private static final long SECONDS_TO_NANOS_MULTIPLIER = 1000L * 1000L * 1000L;
+
 	private final KinesisDeserializationSchema<T> deserializer;
 
 	private final KinesisProxyInterface kinesis;
@@ -196,7 +198,7 @@ public class ShardConsumer<T> implements Runnable {
 				}
 			}
 
-			long lastTimeNanos = 0;
+			long lastTimeNanos = System.nanoTime();
 			while (isRunning()) {
 				if (nextShardItr == null) {
 					fetcherRef.updateState(subscribedShardStateIndex, SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get());
@@ -204,8 +206,10 @@ public class ShardConsumer<T> implements Runnable {
 					// we can close this consumer thread once we've reached the end of the subscribed shard
 					break;
 				} else {
+					long elapsedTimeSeconds = 0;
 					if (fetchIntervalMillis != 0) {
 							long elapsedTimeNanos = System.nanoTime() - lastTimeNanos;
+							elapsedTimeSeconds = elapsedTimeNanos / 1_000_000_000;
 							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
 							if (sleepTimeMillis > 0) {
 								Thread.sleep(sleepTimeMillis);
@@ -236,8 +240,8 @@ public class ShardConsumer<T> implements Runnable {
 					// Adjust number of records to fetch from the shard depending on current average record size
 					// to optimize 2 Mb / sec read limits
 					if (useAdaptiveReads) {
-						if (averageRecordSizeBytes != 0 && fetchIntervalMillis != 0) {
-							maxNumberOfRecordsPerFetch = (int) (KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / (averageRecordSizeBytes * 1000L / fetchIntervalMillis));
+						if (averageRecordSizeBytes != 0 && elapsedTimeSeconds != 0) {
+							maxNumberOfRecordsPerFetch = (int) (KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / (averageRecordSizeBytes / elapsedTimeSeconds));
 
 							// Ensure the value is not more than 10000L
 							maxNumberOfRecordsPerFetch = maxNumberOfRecordsPerFetch <= ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX ?
