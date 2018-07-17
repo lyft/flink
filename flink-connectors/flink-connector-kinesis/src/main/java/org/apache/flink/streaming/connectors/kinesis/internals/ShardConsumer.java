@@ -205,11 +205,16 @@ public class ShardConsumer<T> implements Runnable {
 					// we can close this consumer thread once we've reached the end of the subscribed shard
 					break;
 				} else {
+					LOG.info( "maxNumberOfRecordsPerFetch: {}" , maxNumberOfRecordsPerFetch);
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
+
+					List<Record> aggregatedRecords = getRecordsResult.getRecords();
+
+					LOG.info("aggregatedRecords size: {} ", aggregatedRecords.size());
 
 					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
 					List<UserRecord> fetchedRecords = deaggregateRecords(
-						getRecordsResult.getRecords(),
+						aggregatedRecords,
 						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
 						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
 
@@ -219,12 +224,15 @@ public class ShardConsumer<T> implements Runnable {
 						deserializeRecordForCollectionAndUpdateState(record);
 					}
 
+					LOG.info( "deaggregatedRecords size: {}" , fetchedRecords.size());
+
 					nextShardItr = getRecordsResult.getNextShardIterator();
 
 					long processingEndTimeNanos = System.nanoTime();
 
 					long adjustmentEndTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
 					long runLoopTimeNanos = adjustmentEndTimeNanos - processingStartTimeNanos;
+					LOG.info("runLoopTimeNanos {}: ", runLoopTimeNanos);
 					adaptRecordsToRead(runLoopTimeNanos, fetchedRecords.size(), recordBatchSizeBytes);
 
 					processingStartTimeNanos = adjustmentEndTimeNanos; // for next time through the loop
@@ -249,6 +257,7 @@ public class ShardConsumer<T> implements Runnable {
 			long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
 			long sleepTimeMillis = fetchIntervalMillis - (processingTimeNanos / 1_000_000);
 			if (sleepTimeMillis > 0) {
+				LOG.info("sleepTimeMillis: {}" , sleepTimeMillis);
 				Thread.sleep(sleepTimeMillis);
 				endTimeNanos = System.nanoTime();
 			}
@@ -266,10 +275,12 @@ public class ShardConsumer<T> implements Runnable {
 	private void adaptRecordsToRead(long runLoopTimeNanos, int numRecords, long recordBatchSizeBytes) {
 		if (useAdaptiveReads && numRecords != 0 && runLoopTimeNanos != 0) {
 			long averageRecordSizeBytes = recordBatchSizeBytes / numRecords;
+			LOG.info("averageRecordSizeBytes: {}", averageRecordSizeBytes);
 
 			// Adjust number of records to fetch from the shard depending on current average record size
 			// to optimize 2 Mb / sec read limits
 			double loopFrequencyHz = 1000000000.0d / runLoopTimeNanos;
+			LOG.info("loopFrequencyHz: {}", loopFrequencyHz);
 			double bytesPerRead = KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / loopFrequencyHz;
 			maxNumberOfRecordsPerFetch = (int) (bytesPerRead / averageRecordSizeBytes);
 
