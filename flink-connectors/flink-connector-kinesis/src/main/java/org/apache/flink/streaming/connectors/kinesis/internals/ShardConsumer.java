@@ -197,6 +197,7 @@ public class ShardConsumer<T> implements Runnable {
 			}
 
 			long lastTimeNanos = 0;
+			long runLoopTimeSeconds = 0;
 			while (isRunning()) {
 				if (nextShardItr == null) {
 					fetcherRef.updateState(subscribedShardStateIndex, SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get());
@@ -204,21 +205,6 @@ public class ShardConsumer<T> implements Runnable {
 					// we can close this consumer thread once we've reached the end of the subscribed shard
 					break;
 				} else {
-					long runLoopTimeSeconds = 0;
-					if (fetchIntervalMillis != 0) {
-							long preSleepTimeNanos = System.nanoTime();
-							long elapsedTimeNanos = preSleepTimeNanos - lastTimeNanos;
-							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
-
-							if (sleepTimeMillis > 0) {
-								Thread.sleep(sleepTimeMillis);
-							}
-							long postSleepTimeNanos = System.nanoTime();
-
-							runLoopTimeSeconds = (elapsedTimeNanos + (postSleepTimeNanos - preSleepTimeNanos)) / 1_000_000_000;
-							lastTimeNanos = postSleepTimeNanos;
-						}
-
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
 
 					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
@@ -250,6 +236,21 @@ public class ShardConsumer<T> implements Runnable {
 									maxNumberOfRecordsPerFetch : ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX;
 						}
 					}
+
+					if (fetchIntervalMillis != 0) {
+							long preSleepTimeNanos = System.nanoTime();
+							long elapsedTimeNanos = preSleepTimeNanos - lastTimeNanos;
+							long sleepTimeMillis = fetchIntervalMillis - (elapsedTimeNanos / 1_000_000);
+
+							if (sleepTimeMillis > 0) {
+								Thread.sleep(sleepTimeMillis);
+							}
+							long postSleepTimeNanos = System.nanoTime();
+
+							runLoopTimeSeconds = (elapsedTimeNanos + (postSleepTimeNanos - preSleepTimeNanos)) / 1_000_000_000;
+							lastTimeNanos = postSleepTimeNanos;
+					}
+
 
 					nextShardItr = getRecordsResult.getNextShardIterator();
 				}
