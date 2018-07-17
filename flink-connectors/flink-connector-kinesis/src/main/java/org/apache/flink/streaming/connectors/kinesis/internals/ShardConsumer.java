@@ -245,7 +245,6 @@ public class ShardConsumer<T> implements Runnable {
 		long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
 		if (fetchIntervalMillis != 0) {
 			long sleepTimeMillis = fetchIntervalMillis - (processingTimeNanos / 1_000_000);
-
 			if (sleepTimeMillis > 0) {
 				Thread.sleep(sleepTimeMillis);
 			}
