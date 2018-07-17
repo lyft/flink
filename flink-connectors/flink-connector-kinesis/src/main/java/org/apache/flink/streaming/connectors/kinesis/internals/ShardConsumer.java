@@ -242,8 +242,8 @@ public class ShardConsumer<T> implements Runnable {
 	private long adjustRunLoopFrequency(long processingStartTimeNanos, long processingEndTimeNanos)
 		throws InterruptedException {
 		long runLoopTimeNanos;
+		long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
 		if (fetchIntervalMillis != 0) {
-			long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
 			long sleepTimeMillis = fetchIntervalMillis - (processingTimeNanos / 1_000_000);
 
 			if (sleepTimeMillis > 0) {
@@ -252,7 +252,7 @@ public class ShardConsumer<T> implements Runnable {
 			long sleepTimeNanos = System.nanoTime() - processingEndTimeNanos;
 			runLoopTimeNanos = processingTimeNanos + sleepTimeNanos;
 		} else {
-			runLoopTimeNanos = processingStartTimeNanos - processingEndTimeNanos;
+			runLoopTimeNanos = processingTimeNanos;
 		}
 		return runLoopTimeNanos;
 	}
