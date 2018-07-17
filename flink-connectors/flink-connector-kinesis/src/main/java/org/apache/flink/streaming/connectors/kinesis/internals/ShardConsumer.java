@@ -223,11 +223,11 @@ public class ShardConsumer<T> implements Runnable {
 
 					long processingEndTimeNanos = System.nanoTime();
 
-					long sleepEndTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
-					long runLoopTimeNanos = sleepEndTimeNanos - processingStartTimeNanos;
+					long adjustmentEndTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
+					long runLoopTimeNanos = adjustmentEndTimeNanos - processingStartTimeNanos;
 					adaptRecordsToRead(runLoopTimeNanos, fetchedRecords.size(), recordBatchSizeBytes);
 
-					processingStartTimeNanos = sleepEndTimeNanos; // for next time through the loop
+					processingStartTimeNanos = adjustmentEndTimeNanos; // for next time through the loop
 				}
 			}
 		} catch (Throwable t) {
@@ -244,16 +244,16 @@ public class ShardConsumer<T> implements Runnable {
 	 */
 	private long adjustRunLoopFrequency(long processingStartTimeNanos, long processingEndTimeNanos)
 		throws InterruptedException {
-		long sleepEndTimeNanos = processingEndTimeNanos;
+		long endTimeNanos = processingEndTimeNanos;
 		if (fetchIntervalMillis != 0) {
 			long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
 			long sleepTimeMillis = fetchIntervalMillis - (processingTimeNanos / 1_000_000);
 			if (sleepTimeMillis > 0) {
 				Thread.sleep(sleepTimeMillis);
-				sleepEndTimeNanos = System.nanoTime();
+				endTimeNanos = System.nanoTime();
 			}
 		}
-		return sleepEndTimeNanos;
+		return endTimeNanos;
 	}
 
 	/**
