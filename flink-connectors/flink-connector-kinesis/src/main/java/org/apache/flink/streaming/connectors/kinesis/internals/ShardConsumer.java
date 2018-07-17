@@ -232,7 +232,7 @@ public class ShardConsumer<T> implements Runnable {
 
 					long adjustmentEndTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
 					long runLoopTimeNanos = adjustmentEndTimeNanos - processingStartTimeNanos;
-					LOG.info("runLoopTimeNanos {}: ", runLoopTimeNanos);
+					LOG.info("runLoopTimeNanos: {} ", runLoopTimeNanos);
 					adaptRecordsToRead(runLoopTimeNanos, fetchedRecords.size(), recordBatchSizeBytes);
 
 					processingStartTimeNanos = adjustmentEndTimeNanos; // for next time through the loop
