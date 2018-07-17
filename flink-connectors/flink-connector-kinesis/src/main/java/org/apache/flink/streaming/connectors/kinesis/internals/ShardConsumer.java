@@ -196,8 +196,8 @@ public class ShardConsumer<T> implements Runnable {
 				}
 			}
 
+			long processingStartTimeNanos = System.nanoTime();
 			while (isRunning()) {
-				long processingStartTimeNanos = System.nanoTime();
 
 				if (nextShardItr == null) {
 					fetcherRef.updateState(subscribedShardStateIndex, SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get());
@@ -223,8 +223,11 @@ public class ShardConsumer<T> implements Runnable {
 
 					long processingEndTimeNanos = System.nanoTime();
 
-					long runLoopTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
+					long sleepEndTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
+					long runLoopTimeNanos = sleepEndTimeNanos - processingStartTimeNanos;
 					adaptRecordsToRead(runLoopTimeNanos, fetchedRecords.size(), recordBatchSizeBytes);
+
+					processingStartTimeNanos = sleepEndTimeNanos; // for next time through the loop
 				}
 			}
 		} catch (Throwable t) {
@@ -236,24 +239,21 @@ public class ShardConsumer<T> implements Runnable {
 	 * Adjusts loop timing to match target frequency if specified.
 	 * @param processingStartTimeNanos The start time of the run loop "work"
 	 * @param processingEndTimeNanos The end time of the run loop "work"
-	 * @return The total run loop interval time -- including any added adjustments (sleep time)
+	 * @return The System.nanoTime() after the sleep (if any)
 	 * @throws InterruptedException
 	 */
 	private long adjustRunLoopFrequency(long processingStartTimeNanos, long processingEndTimeNanos)
 		throws InterruptedException {
-		long runLoopTimeNanos;
-		long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
+		long sleepEndTimeNanos = processingEndTimeNanos;
 		if (fetchIntervalMillis != 0) {
+			long processingTimeNanos = processingEndTimeNanos - processingStartTimeNanos;
 			long sleepTimeMillis = fetchIntervalMillis - (processingTimeNanos / 1_000_000);
 			if (sleepTimeMillis > 0) {
 				Thread.sleep(sleepTimeMillis);
+				sleepEndTimeNanos = System.nanoTime();
 			}
-			long sleepTimeNanos = System.nanoTime() - processingEndTimeNanos;
-			runLoopTimeNanos = processingTimeNanos + sleepTimeNanos;
-		} else {
-			runLoopTimeNanos = processingTimeNanos;
 		}
-		return runLoopTimeNanos;
+		return sleepEndTimeNanos;
 	}
 
 	/**
