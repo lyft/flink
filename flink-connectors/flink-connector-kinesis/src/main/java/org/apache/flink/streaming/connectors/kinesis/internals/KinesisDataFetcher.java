@@ -19,9 +19,12 @@ package org.apache.flink.streaming.connectors.kinesis.internals;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.RuntimeContext;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.connectors.kinesis.KinesisShardAssigner;
 import org.apache.flink.streaming.connectors.kinesis.config.ConsumerConfigConstants;
+import org.apache.flink.streaming.connectors.kinesis.metrics.KinesisConsumerMetricConstants;
+import org.apache.flink.streaming.connectors.kinesis.metrics.ShardMetricsReporter;
 import org.apache.flink.streaming.connectors.kinesis.model.KinesisStreamShardState;
 import org.apache.flink.streaming.connectors.kinesis.model.SentinelSequenceNumber;
 import org.apache.flink.streaming.connectors.kinesis.model.SequenceNumber;
@@ -94,6 +97,9 @@ public class KinesisDataFetcher<T> {
 	 * clone a copy using {@link KinesisDataFetcher#getClonedDeserializationSchema()}.
 	 */
 	private final KinesisDeserializationSchema<T> deserializationSchema;
+
+	/** The metric group that all metrics should be registered to. */
+	private final MetricGroup consumerMetricGroup;
 
 	/**
 	 * The function that determines which subtask a shard should be assigned to.
@@ -218,6 +224,9 @@ public class KinesisDataFetcher<T> {
 		this.shardAssigner = checkNotNull(shardAssigner);
 		this.kinesis = checkNotNull(kinesis);
 
+		this.consumerMetricGroup = runtimeContext.getMetricGroup()
+			.addGroup(KinesisConsumerMetricConstants.KINESIS_CONSUMER_METRICS_GROUP);
+
 		this.error = checkNotNull(error);
 		this.subscribedShardsState = checkNotNull(subscribedShardsState);
 		this.subscribedStreamsToLastDiscoveredShardIds = checkNotNull(subscribedStreamsToLastDiscoveredShardIds);
@@ -286,7 +295,8 @@ public class KinesisDataFetcher<T> {
 						this,
 						seededStateIndex,
 						subscribedShardsState.get(seededStateIndex).getStreamShardHandle(),
-						subscribedShardsState.get(seededStateIndex).getLastProcessedSequenceNum()));
+						subscribedShardsState.get(seededStateIndex).getLastProcessedSequenceNum(),
+						registerShardMetrics(consumerMetricGroup, subscribedShardsState.get(seededStateIndex))));
 			}
 		}
 
@@ -332,7 +342,8 @@ public class KinesisDataFetcher<T> {
 						this,
 						newStateIndex,
 						newShardState.getStreamShardHandle(),
-						newShardState.getLastProcessedSequenceNum()));
+						newShardState.getLastProcessedSequenceNum(),
+						registerShardMetrics(consumerMetricGroup, newShardState)));
 			}
 
 			// we also check if we are running here so that we won't start the discovery sleep
@@ -555,6 +566,31 @@ public class KinesisDataFetcher<T> {
 
 			return subscribedShardsState.size() - 1;
 		}
+	}
+
+	/**
+	 * Registers a metric group associated with the shard id of the provided {@link KinesisStreamShardState shardState}.
+	 *
+	 * @return a {@link ShardMetricsReporter} that can be used to update metric values
+	 */
+	private static ShardMetricsReporter registerShardMetrics(MetricGroup metricGroup, KinesisStreamShardState shardState) {
+		ShardMetricsReporter shardMetrics = new ShardMetricsReporter();
+
+		MetricGroup streamShardMetricGroup = metricGroup
+			.addGroup(KinesisConsumerMetricConstants.STREAM_METRICS_GROUP)
+			.addGroup(shardState.getStreamShardHandle().getStreamName())
+			.addGroup(KinesisConsumerMetricConstants.SHARD_METRICS_GROUP)
+			.addGroup(shardState.getStreamShardHandle().getShard().getShardId());
+
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.MAX_RECORDS_PER_FETCH, shardMetrics::getMaxNumberOfRecordsPerFetch);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.NUM_AGGREGATED_RECORDS_PER_FETCH, shardMetrics::getNumberOfAggregatedRecords);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.NUM_DEAGGREGATED_RECORDS_PER_FETCH, shardMetrics::getNumberOfDeaggregatedRecords);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.AVG_RECORD_SIZE_BYTES, shardMetrics::getAverageRecordSizeBytes);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.BYTES_PER_READ, shardMetrics::getBytesPerRead);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.RUNTIME_LOOP_NANOS, shardMetrics::getRunLoopTimeNanos);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.LOOP_FREQUENCY_HZ, shardMetrics::getLoopFrequencyHz);
+		streamShardMetricGroup.gauge(KinesisConsumerMetricConstants.SLEEP_TIME_MILLIS, shardMetrics::getSleepTimeMillis);
+		return shardMetrics;
 	}
 
 	// ------------------------------------------------------------------------
