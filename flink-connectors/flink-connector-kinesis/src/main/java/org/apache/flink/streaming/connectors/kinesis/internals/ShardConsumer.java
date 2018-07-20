@@ -19,6 +19,7 @@ package org.apache.flink.streaming.connectors.kinesis.internals;
 
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.connectors.kinesis.config.ConsumerConfigConstants;
+import org.apache.flink.streaming.connectors.kinesis.metrics.ShardMetricsReporter;
 import org.apache.flink.streaming.connectors.kinesis.model.SentinelSequenceNumber;
 import org.apache.flink.streaming.connectors.kinesis.model.SequenceNumber;
 import org.apache.flink.streaming.connectors.kinesis.model.StreamShardHandle;
@@ -76,6 +77,8 @@ public class ShardConsumer<T> implements Runnable {
 
 	private Date initTimestamp;
 
+	private final ShardMetricsReporter shardMetricsReporter;
+
 	/**
 	 * Creates a shard consumer.
 	 *
@@ -87,12 +90,14 @@ public class ShardConsumer<T> implements Runnable {
 	public ShardConsumer(KinesisDataFetcher<T> fetcherRef,
 						Integer subscribedShardStateIndex,
 						StreamShardHandle subscribedShard,
-						SequenceNumber lastSequenceNum) {
+						SequenceNumber lastSequenceNum,
+						ShardMetricsReporter shardMetricsReporter) {
 		this(fetcherRef,
 			subscribedShardStateIndex,
 			subscribedShard,
 			lastSequenceNum,
-			KinesisProxy.create(fetcherRef.getConsumerConfiguration()));
+			KinesisProxy.create(fetcherRef.getConsumerConfiguration()),
+			shardMetricsReporter);
 	}
 
 	/** This constructor is exposed for testing purposes. */
@@ -100,11 +105,14 @@ public class ShardConsumer<T> implements Runnable {
 							Integer subscribedShardStateIndex,
 							StreamShardHandle subscribedShard,
 							SequenceNumber lastSequenceNum,
-							KinesisProxyInterface kinesis) {
+							KinesisProxyInterface kinesis,
+							ShardMetricsReporter shardMetricsReporter) {
 		this.fetcherRef = checkNotNull(fetcherRef);
 		this.subscribedShardStateIndex = checkNotNull(subscribedShardStateIndex);
 		this.subscribedShard = checkNotNull(subscribedShard);
 		this.lastSequenceNum = checkNotNull(lastSequenceNum);
+		this.shardMetricsReporter = checkNotNull(shardMetricsReporter);
+
 		checkArgument(
 			!lastSequenceNum.equals(SentinelSequenceNumber.SENTINEL_SHARD_ENDING_SEQUENCE_NUM.get()),
 			"Should not start a ShardConsumer if the shard has already been completely read.");
@@ -205,11 +213,17 @@ public class ShardConsumer<T> implements Runnable {
 					// we can close this consumer thread once we've reached the end of the subscribed shard
 					break;
 				} else {
+
+					shardMetricsReporter.setMaxNumberOfRecordsPerFetch(maxNumberOfRecordsPerFetch);
 					GetRecordsResult getRecordsResult = getRecords(nextShardItr, maxNumberOfRecordsPerFetch);
+
+					List<Record> aggregatedRecords = getRecordsResult.getRecords();
+					int numberOfAggregatedRecords = aggregatedRecords.size();
+					shardMetricsReporter.setNumberOfAggregatedRecords(numberOfAggregatedRecords);
 
 					// each of the Kinesis records may be aggregated, so we must deaggregate them before proceeding
 					List<UserRecord> fetchedRecords = deaggregateRecords(
-						getRecordsResult.getRecords(),
+						aggregatedRecords,
 						subscribedShard.getShard().getHashKeyRange().getStartingHashKey(),
 						subscribedShard.getShard().getHashKeyRange().getEndingHashKey());
 
@@ -219,13 +233,17 @@ public class ShardConsumer<T> implements Runnable {
 						deserializeRecordForCollectionAndUpdateState(record);
 					}
 
+					int numberOfDeaggregatedRecords = fetchedRecords.size();
+					shardMetricsReporter.setNumberOfDeaggregatedRecords(numberOfDeaggregatedRecords);
+
 					nextShardItr = getRecordsResult.getNextShardIterator();
 
 					long processingEndTimeNanos = System.nanoTime();
 
 					long adjustmentEndTimeNanos = adjustRunLoopFrequency(processingStartTimeNanos, processingEndTimeNanos);
 					long runLoopTimeNanos = adjustmentEndTimeNanos - processingStartTimeNanos;
-					adaptRecordsToRead(runLoopTimeNanos, fetchedRecords.size(), recordBatchSizeBytes);
+					shardMetricsReporter.setRunLoopTimeNanos(runLoopTimeNanos);
+					adaptRecordsToRead(runLoopTimeNanos, numberOfDeaggregatedRecords, recordBatchSizeBytes);
 
 					processingStartTimeNanos = adjustmentEndTimeNanos; // for next time through the loop
 				}
@@ -251,6 +269,7 @@ public class ShardConsumer<T> implements Runnable {
 			if (sleepTimeMillis > 0) {
 				Thread.sleep(sleepTimeMillis);
 				endTimeNanos = System.nanoTime();
+				shardMetricsReporter.setSleepTimeMillis(sleepTimeMillis);
 			}
 		}
 		return endTimeNanos;
@@ -266,11 +285,13 @@ public class ShardConsumer<T> implements Runnable {
 	private void adaptRecordsToRead(long runLoopTimeNanos, int numRecords, long recordBatchSizeBytes) {
 		if (useAdaptiveReads && numRecords != 0 && runLoopTimeNanos != 0) {
 			long averageRecordSizeBytes = recordBatchSizeBytes / numRecords;
-
+			shardMetricsReporter.setAverageRecordSizeBytes(averageRecordSizeBytes);
 			// Adjust number of records to fetch from the shard depending on current average record size
 			// to optimize 2 Mb / sec read limits
 			double loopFrequencyHz = 1000000000.0d / runLoopTimeNanos;
+			shardMetricsReporter.setLoopFrequencyHz(loopFrequencyHz);
 			double bytesPerRead = KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / loopFrequencyHz;
+			shardMetricsReporter.setBytesPerRead(bytesPerRead);
 			maxNumberOfRecordsPerFetch = (int) (bytesPerRead / averageRecordSizeBytes);
 
 			// Ensure the value is not more than 10000L

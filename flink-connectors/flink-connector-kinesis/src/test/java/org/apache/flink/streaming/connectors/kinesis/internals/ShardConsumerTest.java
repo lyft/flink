@@ -17,6 +17,7 @@
 
 package org.apache.flink.streaming.connectors.kinesis.internals;
 
+import org.apache.flink.streaming.connectors.kinesis.metrics.ShardMetricsReporter;
 import org.apache.flink.streaming.connectors.kinesis.model.KinesisStreamShardState;
 import org.apache.flink.streaming.connectors.kinesis.model.SentinelSequenceNumber;
 import org.apache.flink.streaming.connectors.kinesis.model.SequenceNumber;
@@ -84,7 +85,7 @@ public class ShardConsumerTest {
 			0,
 			subscribedShardsStateUnderTest.get(0).getStreamShardHandle(),
 			subscribedShardsStateUnderTest.get(0).getLastProcessedSequenceNum(),
-			FakeKinesisBehavioursFactory.totalNumOfRecordsAfterNumOfGetRecordsCalls(1000, 9)).run();
+			FakeKinesisBehavioursFactory.totalNumOfRecordsAfterNumOfGetRecordsCalls(1000, 9), new ShardMetricsReporter()).run();
 
 		assertEquals(1000, sourceContext.getCollectedOutputs().size());
 		assertEquals(
@@ -130,7 +131,7 @@ public class ShardConsumerTest {
 			subscribedShardsStateUnderTest.get(0).getLastProcessedSequenceNum(),
 			// Get a total of 1000 records with 9 getRecords() calls,
 			// and the 7th getRecords() call will encounter an unexpected expired shard iterator
-			FakeKinesisBehavioursFactory.totalNumOfRecordsAfterNumOfGetRecordsCallsWithUnexpectedExpiredIterator(1000, 9, 7)).run();
+			FakeKinesisBehavioursFactory.totalNumOfRecordsAfterNumOfGetRecordsCallsWithUnexpectedExpiredIterator(1000, 9, 7), new ShardMetricsReporter()).run();
 
 		assertEquals(1000, sourceContext.getCollectedOutputs().size());
 		assertEquals(
@@ -179,7 +180,7 @@ public class ShardConsumerTest {
 			// Start with inital number of records per batch as 10
 			// Make 2 calls to getRecords
 			// Each record is of size 10 Kb
-			FakeKinesisBehavioursFactory.initialNumOfRecordsAfterNumOfGetRecordsCallsWithAdaptiveReads(10, 2)).run();
+			FakeKinesisBehavioursFactory.initialNumOfRecordsAfterNumOfGetRecordsCallsWithAdaptiveReads(10, 2), new ShardMetricsReporter()).run();
 
 		// Avg record size for first batch --> 10 * 10 Kb/10 = 10 Kb
 		// Number of records fetched in second batch --> 2 Mb/10Kb * 5 = 40
