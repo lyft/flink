@@ -563,10 +563,6 @@ public class BucketingSink<T>
 		// Record the creation time of the bucket
 		bucketState.creationTime = processingTimeService.getCurrentProcessingTime();
 
-		if (partSuffix != null) {
-			partPath = partPath.suffix(partSuffix);
-		}
-
 		// increase, so we don't have to check for this name next time
 		bucketState.partCounter++;
 
