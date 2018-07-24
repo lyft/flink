@@ -252,7 +252,7 @@ public class ShardConsumer<T> implements Runnable {
 	 * @return The System.nanoTime() after the sleep (if any)
 	 * @throws InterruptedException
 	 */
-	private long adjustRunLoopFrequency(long processingStartTimeNanos, long processingEndTimeNanos)
+	protected long adjustRunLoopFrequency(long processingStartTimeNanos, long processingEndTimeNanos)
 		throws InterruptedException {
 		long endTimeNanos = processingEndTimeNanos;
 		if (fetchIntervalMillis != 0) {
@@ -273,7 +273,7 @@ public class ShardConsumer<T> implements Runnable {
 	 * @param numRecords The number of records of the last read operation
 	 * @param recordBatchSizeBytes The total batch size of the last read operation
 	 */
-	private void adaptRecordsToRead(long runLoopTimeNanos, int numRecords, long recordBatchSizeBytes) {
+	protected int adaptRecordsToRead(long runLoopTimeNanos, int numRecords, long recordBatchSizeBytes) {
 		if (useAdaptiveReads && numRecords != 0 && runLoopTimeNanos != 0) {
 			long averageRecordSizeBytes = recordBatchSizeBytes / numRecords;
 			// Adjust number of records to fetch from the shard depending on current average record size
@@ -282,11 +282,9 @@ public class ShardConsumer<T> implements Runnable {
 			double bytesPerRead = KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / loopFrequencyHz;
 			maxNumberOfRecordsPerFetch = (int) (bytesPerRead / averageRecordSizeBytes);
 			// Ensure the value is not more than 10000L
-			maxNumberOfRecordsPerFetch = maxNumberOfRecordsPerFetch
-				<= ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX ?
-				maxNumberOfRecordsPerFetch
-				: ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX;
+			maxNumberOfRecordsPerFetch = Math.min(maxNumberOfRecordsPerFetch, ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX);
 		}
+		return maxNumberOfRecordsPerFetch;
 	}
 
 	/**
