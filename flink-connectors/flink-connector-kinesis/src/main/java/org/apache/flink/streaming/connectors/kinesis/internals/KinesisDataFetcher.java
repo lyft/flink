@@ -291,8 +291,7 @@ public class KinesisDataFetcher<T> {
 					}
 
 				shardConsumersExecutor.submit(
-					new ShardConsumer<>(
-						this,
+					createShardConsumer(
 						seededStateIndex,
 						subscribedShardsState.get(seededStateIndex).getStreamShardHandle(),
 						subscribedShardsState.get(seededStateIndex).getLastProcessedSequenceNum(),
@@ -338,8 +337,7 @@ public class KinesisDataFetcher<T> {
 				}
 
 				shardConsumersExecutor.submit(
-					new ShardConsumer<>(
-						this,
+					createShardConsumer(
 						newStateIndex,
 						newShardState.getStreamShardHandle(),
 						newShardState.getLastProcessedSequenceNum(),
@@ -420,7 +418,6 @@ public class KinesisDataFetcher<T> {
 			shutdownFetcher();
 		}
 	}
-
 	// ------------------------------------------------------------------------
 	//  Functions that update the subscribedStreamToLastDiscoveredShardIds state
 	// ------------------------------------------------------------------------
@@ -437,6 +434,29 @@ public class KinesisDataFetcher<T> {
 		} else if (StreamShardHandle.compareShardIds(shardId, lastSeenShardIdOfStream) > 0) {
 			this.subscribedStreamsToLastDiscoveredShardIds.put(stream, shardId);
 		}
+	}
+
+	/**
+	 * Function to create new shard consumer (can be overriden to embed customized KinesisProxy).
+	 *
+	 * @param subscribedShardStateIndex index in subscribed shard state
+	 * @param handle handle of the shard consumer stream
+	 * @param lastSeqNum last processed sequence number of the stream
+	 * @param shardMetricsReporter the reporter to report shard metrics to
+	 * @return new shard consumer object
+	 */
+	protected ShardConsumer createShardConsumer(
+		int subscribedShardStateIndex,
+		StreamShardHandle handle,
+		SequenceNumber lastSeqNum,
+		ShardMetricsReporter shardMetricsReporter) {
+		return new ShardConsumer<>(
+			this,
+			subscribedShardStateIndex,
+			handle,
+			lastSeqNum,
+			KinesisProxy.create(configProps),
+			shardMetricsReporter);
 	}
 
 	/**
