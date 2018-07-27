@@ -88,6 +88,7 @@ public class ShardConsumer<T> implements Runnable {
 	 * @param lastSequenceNum the sequence number in the shard to start consuming
 	 */
 	public ShardConsumer(KinesisDataFetcher<T> fetcherRef,
+						Properties consumerConfigProps,
 						Integer subscribedShardStateIndex,
 						StreamShardHandle subscribedShard,
 						SequenceNumber lastSequenceNum,
@@ -96,7 +97,7 @@ public class ShardConsumer<T> implements Runnable {
 			subscribedShardStateIndex,
 			subscribedShard,
 			lastSequenceNum,
-			KinesisProxy.create(fetcherRef.getConsumerConfiguration()),
+			KinesisProxy.create(consumerConfigProps),
 			shardMetricsReporter);
 	}
 
