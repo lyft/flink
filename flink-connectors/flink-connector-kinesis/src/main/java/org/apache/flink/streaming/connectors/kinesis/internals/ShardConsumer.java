@@ -90,6 +90,7 @@ public class ShardConsumer<T> implements Runnable {
 	 * @param shardMetricsReporter the reporter to report metrics to
 	 */
 	public ShardConsumer(KinesisDataFetcher<T> fetcherRef,
+						Properties consumerConfigProps,
 						Integer subscribedShardStateIndex,
 						StreamShardHandle subscribedShard,
 						SequenceNumber lastSequenceNum,
@@ -98,7 +99,7 @@ public class ShardConsumer<T> implements Runnable {
 			subscribedShardStateIndex,
 			subscribedShard,
 			lastSequenceNum,
-			KinesisProxy.create(fetcherRef.getConsumerConfiguration()),
+			KinesisProxy.create(consumerConfigProps),
 			shardMetricsReporter);
 	}
 
