@@ -440,33 +440,33 @@ public class KinesisDataFetcher<T> {
 		}
 	}
 
-  /**
-   * Function to create new shard consumer (can be overriden to embed customized KinesisProxy).
-   *
-   * @param fetcherRef reference to data fetcher
-   * @param consumerConfigProps config properties of the shard consumer
-   * @param subscribedShardStateIndex index in subscribed shard state
-   * @param handle handle of the shard consumer stream
-   * @param lastSeqNum last processed sequence number of the stream
-   * @return
-   */
-  protected ShardConsumer createShardConsumer(
-      KinesisDataFetcher fetcherRef,
-      Properties consumerConfigProps,
-      int subscribedShardStateIndex,
-      StreamShardHandle handle,
-      SequenceNumber lastSeqNum,
-      ShardMetricsReporter shardMetricsReporter) {
-    return new ShardConsumer<>(
-        fetcherRef,
-        consumerConfigProps,
-        subscribedShardStateIndex,
-        handle,
-        lastSeqNum,
-        shardMetricsReporter);
-  }
+	/**
+	 * Function to create new shard consumer (can be overriden to embed customized KinesisProxy).
+	 *
+	 * @param fetcherRef reference to data fetcher
+	 * @param consumerConfigProps config properties of the shard consumer
+	 * @param subscribedShardStateIndex index in subscribed shard state
+	 * @param handle handle of the shard consumer stream
+	 * @param lastSeqNum last processed sequence number of the stream
+	 * @return new shard consumer object
+	 */
+	protected ShardConsumer createShardConsumer(
+		KinesisDataFetcher fetcherRef,
+		Properties consumerConfigProps,
+		int subscribedShardStateIndex,
+		StreamShardHandle handle,
+		SequenceNumber lastSeqNum,
+		ShardMetricsReporter shardMetricsReporter) {
+		return new ShardConsumer<>(
+			fetcherRef,
+			consumerConfigProps,
+			subscribedShardStateIndex,
+			handle,
+			lastSeqNum,
+			shardMetricsReporter);
+	}
 
-  /**
+	/**
 	 * A utility function that does the following:
 	 *
 	 * <p>1. Find new shards for each stream that we haven't seen before
