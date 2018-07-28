@@ -441,7 +441,6 @@ public class KinesisDataFetcher<T> {
 	/**
 	 * Function to create new shard consumer (can be overriden to embed customized KinesisProxy).
 	 *
-	 * @param fetcherRef reference to data fetcher
 	 * @param consumerConfigProps config properties of the shard consumer
 	 * @param subscribedShardStateIndex index in subscribed shard state
 	 * @param handle handle of the shard consumer stream
