@@ -292,7 +292,6 @@ public class KinesisDataFetcher<T> {
 
 				shardConsumersExecutor.submit(
 					createShardConsumer(
-						configProps,
 						seededStateIndex,
 						subscribedShardsState.get(seededStateIndex).getStreamShardHandle(),
 						subscribedShardsState.get(seededStateIndex).getLastProcessedSequenceNum(),
@@ -339,7 +338,6 @@ public class KinesisDataFetcher<T> {
 
 				shardConsumersExecutor.submit(
 					createShardConsumer(
-						configProps,
 						newStateIndex,
 						newShardState.getStreamShardHandle(),
 						newShardState.getLastProcessedSequenceNum(),
@@ -447,7 +445,6 @@ public class KinesisDataFetcher<T> {
 	 * @return new shard consumer object
 	 */
 	protected ShardConsumer createShardConsumer(
-		Properties consumerConfigProps,
 		int subscribedShardStateIndex,
 		StreamShardHandle handle,
 		SequenceNumber lastSeqNum,
@@ -457,7 +454,7 @@ public class KinesisDataFetcher<T> {
 			subscribedShardStateIndex,
 			handle,
 			lastSeqNum,
-			KinesisProxy.create(consumerConfigProps),
+			KinesisProxy.create(configProps),
 			shardMetricsReporter);
 	}
 
