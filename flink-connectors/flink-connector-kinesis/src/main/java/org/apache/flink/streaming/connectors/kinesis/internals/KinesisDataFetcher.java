@@ -442,6 +442,7 @@ public class KinesisDataFetcher<T> {
 	 * @param subscribedShardStateIndex index in subscribed shard state
 	 * @param handle handle of the shard consumer stream
 	 * @param lastSeqNum last processed sequence number of the stream
+	 * @param shardMetricsReporter the reporter to report shard metrics to
 	 * @return new shard consumer object
 	 */
 	protected ShardConsumer createShardConsumer(
