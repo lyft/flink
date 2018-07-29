@@ -441,7 +441,6 @@ public class KinesisDataFetcher<T> {
 	/**
 	 * Function to create new shard consumer (can be overriden to embed customized KinesisProxy).
 	 *
-	 * @param consumerConfigProps config properties of the shard consumer
 	 * @param subscribedShardStateIndex index in subscribed shard state
 	 * @param handle handle of the shard consumer stream
 	 * @param lastSeqNum last processed sequence number of the stream
@@ -455,10 +454,10 @@ public class KinesisDataFetcher<T> {
 		ShardMetricsReporter shardMetricsReporter) {
 		return new ShardConsumer<>(
 			this,
-			consumerConfigProps,
 			subscribedShardStateIndex,
 			handle,
 			lastSeqNum,
+			KinesisProxy.create(consumerConfigProps),
 			shardMetricsReporter);
 	}
 
