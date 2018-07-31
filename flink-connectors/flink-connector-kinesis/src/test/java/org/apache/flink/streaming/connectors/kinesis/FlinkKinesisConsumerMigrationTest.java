@@ -19,6 +19,7 @@ package org.apache.flink.streaming.connectors.kinesis;
 
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.operators.StreamSource;
@@ -468,6 +469,7 @@ public class FlinkKinesisConsumerMigrationTest {
 
 		Mockito.when(runtimeContext.getNumberOfParallelSubtasks()).thenReturn(numSubtasks);
 		Mockito.when(runtimeContext.getNumberOfParallelSubtasks()).thenReturn(thisSubtaskIndex);
+		Mockito.when(runtimeContext.getMetricGroup()).thenReturn(new UnregisteredMetricsGroup());
 
 		return runtimeContext;
 	}
