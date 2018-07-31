@@ -224,8 +224,12 @@ public class KinesisDataFetcher<T> {
 		this.shardAssigner = checkNotNull(shardAssigner);
 		this.kinesis = checkNotNull(kinesis);
 
-		this.consumerMetricGroup = runtimeContext.getMetricGroup()
-			.addGroup(KinesisConsumerMetricConstants.KINESIS_CONSUMER_METRICS_GROUP);
+		if (runtimeContext.getMetricGroup() != null) {
+			this.consumerMetricGroup = runtimeContext.getMetricGroup()
+				.addGroup(KinesisConsumerMetricConstants.KINESIS_CONSUMER_METRICS_GROUP);
+		} else {
+			this.consumerMetricGroup = null;
+		}
 
 		this.error = checkNotNull(error);
 		this.subscribedShardsState = checkNotNull(subscribedShardsState);
