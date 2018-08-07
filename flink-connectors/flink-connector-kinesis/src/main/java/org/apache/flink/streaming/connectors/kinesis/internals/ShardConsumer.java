@@ -282,8 +282,7 @@ public class ShardConsumer<T> implements Runnable {
 			maxNumberOfRecordsPerFetch = (int) (bytesPerRead / averageRecordSizeBytes);
 
 			// Ensure the value is not more than 10000L or less than 1L
-			maxNumberOfRecordsPerFetch = Math.max(1, maxNumberOfRecordsPerFetch);
-			maxNumberOfRecordsPerFetch = Math.min(10000, maxNumberOfRecordsPerFetch);
+			maxNumberOfRecordsPerFetch = Math.max(1, Math.min(10000, maxNumberOfRecordsPerFetch));
 		}
 	}
 
