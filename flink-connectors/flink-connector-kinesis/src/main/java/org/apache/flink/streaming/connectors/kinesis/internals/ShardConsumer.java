@@ -271,15 +271,15 @@ public class ShardConsumer<T> implements Runnable {
 	 */
 	private void adaptRecordsToRead(long runLoopTimeNanos, int numRecords, long recordBatchSizeBytes) {
 		if (useAdaptiveReads && numRecords != 0 && runLoopTimeNanos != 0) {
-			long averageRecordSizeBytes = recordBatchSizeBytes / numRecords;
-			shardMetricsReporter.setAverageRecordSizeBytes(averageRecordSizeBytes);
+			long bytesPerRecordRequested = recordBatchSizeBytes / maxNumberOfRecordsPerFetch;
+			shardMetricsReporter.setAverageRecordSizeBytes(bytesPerRecordRequested);
 			// Adjust number of records to fetch from the shard depending on current average record size
 			// to optimize 2 Mb / sec read limits
 			double loopFrequencyHz = 1000000000.0d / runLoopTimeNanos;
 			shardMetricsReporter.setLoopFrequencyHz(loopFrequencyHz);
-			double bytesPerRead = KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / loopFrequencyHz;
-			shardMetricsReporter.setBytesPerRead(bytesPerRead);
-			maxNumberOfRecordsPerFetch = (int) (bytesPerRead / averageRecordSizeBytes);
+			double targetBytesPerRead = KINESIS_SHARD_BYTES_PER_SECOND_LIMIT / loopFrequencyHz;
+			shardMetricsReporter.setBytesPerRead(targetBytesPerRead);
+			maxNumberOfRecordsPerFetch = (int) (targetBytesPerRead / bytesPerRecordRequested);
 			// Ensure the value is greater than 0 and not more than 10000L
 			maxNumberOfRecordsPerFetch = Math.max(1, Math.min(maxNumberOfRecordsPerFetch, ConsumerConfigConstants.DEFAULT_SHARD_GETRECORDS_MAX));
 		}
