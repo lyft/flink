@@ -408,19 +408,34 @@ public class KinesisProxy implements KinesisProxyInterface {
 			}
 		}
 
-		// Kinesalite (mock implementation of Kinesis) does not correctly exclude shards before the exclusive
-		// start shard id in the returned shards list; check if we need to remove these erroneously returned shards
-		if (startShardId != null) {
-			List<Shard> shards = describeStreamResult.getStreamDescription().getShards();
-			Iterator<Shard> shardItr = shards.iterator();
-			while (shardItr.hasNext()) {
-				if (StreamShardHandle.compareShardIds(shardItr.next().getShardId(), startShardId) <= 0) {
-					shardItr.remove();
-				}
-			}
-		}
+		// remove shards from the final result
+		filterUnqualifiedShards(startShardId, describeStreamResult);
 
 		return describeStreamResult;
+	}
+
+	/**
+	 * Function to exclude shards that shall not appear in the describeStream result.
+	 *
+	 * @param startShardId start ShardId
+	 * @param describeStreamResult raw describeStream result to filter with
+	 */
+	protected void filterUnqualifiedShards(
+			@Nullable String startShardId,
+			DescribeStreamResult describeStreamResult) {
+		if (describeStreamResult == null || startShardId == null) {
+			return;
+		}
+
+		// Kinesalite (mock implementation of Kinesis) does not correctly exclude shards before the exclusive
+		// start shard id in the returned shards list; check if we need to remove these erroneously returned shards
+		List<Shard> shards = describeStreamResult.getStreamDescription().getShards();
+		Iterator<Shard> shardItr = shards.iterator();
+		while (shardItr.hasNext()) {
+			if (StreamShardHandle.compareShardIds(shardItr.next().getShardId(), startShardId) <= 0) {
+				shardItr.remove();
+			}
+		}
 	}
 
 	protected static long fullJitterBackoff(long base, long max, double power, int attempt) {
