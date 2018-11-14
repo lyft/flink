@@ -2,6 +2,9 @@ package org.apache.flink.runtime.watermark;
 
 import java.io.Serializable;
 
+/**
+ * This represents the watermark for a single source partition.
+ */
 public class SourceWatermark implements Serializable {
 
 	private static final long serialVersionUID = 1L;
