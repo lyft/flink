@@ -101,6 +101,8 @@ import org.apache.flink.runtime.taskexecutor.TaskExecutorGateway;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.watermark.GlobalSourceWatermarkInfo;
+import org.apache.flink.runtime.watermark.SourceWatermark;
 import org.apache.flink.runtime.webmonitor.WebMonitorUtils;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
@@ -217,6 +219,8 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId> implements JobMast
 	@Nullable
 	private EstablishedResourceManagerConnection establishedResourceManagerConnection;
 
+	private GlobalSourceWatermarkInfo globalSourceWatermarkInfo;
+
 	// ------------------------------------------------------------------------
 
 	public JobMaster(
@@ -295,6 +299,8 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId> implements JobMast
 
 		this.resourceManagerConnection = null;
 		this.establishedResourceManagerConnection = null;
+
+		this.globalSourceWatermarkInfo = new GlobalSourceWatermarkInfo();
 	}
 
 	//----------------------------------------------------------------------------------------------
@@ -982,6 +988,23 @@ public class JobMaster extends FencedRpcEndpoint<JobMasterId> implements JobMast
 	@Override
 	public void notifyAllocationFailure(AllocationID allocationID, Exception cause) {
 		slotPoolGateway.failAllocation(allocationID, cause);
+	}
+
+	@Override
+	public CompletableFuture<GlobalSourceWatermarkInfo> requestGlobalSourceWatermarkInfo(SourceWatermark sourceWatermark) {
+		long globalMin = globalSourceWatermarkInfo.getMin().getTimestamp();
+		long globalMax = globalSourceWatermarkInfo.getMax().getTimestamp();
+		long local = sourceWatermark.getTimestamp();
+
+		if (globalMin == Long.MIN_VALUE || globalMin > local) {
+			globalSourceWatermarkInfo.setMin(sourceWatermark);
+		}
+
+		if (globalMax < local) {
+			globalSourceWatermarkInfo.setMax(sourceWatermark);
+		}
+
+		return CompletableFuture.completedFuture(globalSourceWatermarkInfo);
 	}
 
 	//----------------------------------------------------------------------------------------------

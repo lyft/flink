@@ -54,6 +54,8 @@ import javax.annotation.Nullable;
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
+import org.apache.flink.runtime.watermark.GlobalSourceWatermarkInfo;
+import org.apache.flink.runtime.watermark.SourceWatermark;
 
 /**
  * {@link JobMasterGateway} implementation for testing purposes.
@@ -207,6 +209,11 @@ public class TestingJobMasterGateway implements JobMasterGateway {
 
 	@Override
 	public String getHostname() {
+		return null;
+	}
+
+	@Override
+	public CompletableFuture<GlobalSourceWatermarkInfo> requestGlobalSourceWatermarkInfo(SourceWatermark sourceWatermark) {
 		return null;
 	}
 }

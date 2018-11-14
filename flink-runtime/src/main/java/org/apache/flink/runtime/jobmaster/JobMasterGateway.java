@@ -49,6 +49,8 @@ import javax.annotation.Nullable;
 
 import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
+import org.apache.flink.runtime.watermark.GlobalSourceWatermarkInfo;
+import org.apache.flink.runtime.watermark.SourceWatermark;
 
 /**
  * {@link JobMaster} rpc gateway interface.
@@ -286,4 +288,12 @@ public interface JobMasterGateway extends
 	 * @param cause the reason that the allocation failed
 	 */
 	void notifyAllocationFailure(AllocationID allocationID, Exception cause);
+
+	/**
+	 * Publish a source watermark and retrieve global statistics about the source watermarks across all partitions
+	 *
+	 * @param sourceWatermark A watermark from a single source partition
+	 * @return A Future to the {@link GlobalSourceWatermarkInfo} representing stats across all source partitions
+	 */
+	CompletableFuture<GlobalSourceWatermarkInfo> requestGlobalSourceWatermarkInfo(SourceWatermark sourceWatermark);
 }
