@@ -20,6 +20,7 @@ package org.apache.flink.streaming.connectors.kafka.internal;
 
 import org.apache.flink.core.testutils.MultiShotLatch;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
 import org.apache.flink.streaming.connectors.kafka.internals.ClosableBlockingQueue;
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaCommitCallback;
@@ -27,17 +28,23 @@ import org.apache.flink.streaming.connectors.kafka.internals.KafkaTopicPartition
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaTopicPartitionState;
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaTopicPartitionStateSentinel;
 
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -46,6 +53,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyListOf;
@@ -56,10 +64,15 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.powermock.api.mockito.PowerMockito.doNothing;
+import static org.powermock.api.mockito.PowerMockito.whenNew;
 
 /**
  * Unit tests for the {@link KafkaConsumerThread}.
  */
+
+@RunWith(PowerMockRunner.class)
+@PrepareForTest(Handover.class)
 public class KafkaConsumerThreadTest {
 
 	@Test(timeout = 10000)
@@ -693,6 +706,93 @@ public class KafkaConsumerThreadTest {
 		assertEquals(0, unassignedPartitionsQueue.size());
 	}
 
+	@Test(timeout = 100000)
+	public void testRatelimiting() throws Exception {
+		final String testTopic = "test-topic-ratelimit";
+
+		// -------- setup mock KafkaConsumer with test data --------
+		final int partition = 0;
+		final byte[] payload = new byte[] {1, 2, 3, 4};
+
+		final List<ConsumerRecord<byte[], byte[]>> records = Arrays.asList(
+				new ConsumerRecord<>(testTopic, partition, 15, payload, payload),
+				new ConsumerRecord<>(testTopic, partition, 16, payload, payload),
+				new ConsumerRecord<>(testTopic, partition, 17, payload, payload));
+
+		final Map<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> data = new HashMap<>();
+		data.put(new TopicPartition(testTopic, partition), records);
+
+		final ConsumerRecords<byte[], byte[]> consumerRecords = new ConsumerRecords<>(data);
+
+		// Sleep for one second in each consumer.poll() call to return 24 bytes / second
+		final KafkaConsumer<byte[], byte[]> mockConsumer = mock(KafkaConsumer.class);
+		PowerMockito.when(mockConsumer.poll(anyLong())).thenAnswer(
+				invocationOnMock -> {
+					Thread.sleep(1000L);
+					return consumerRecords;
+				}
+		);
+
+		whenNew(KafkaConsumer.class).withAnyArguments().thenReturn(mockConsumer);
+
+		// -------- new partitions with defined offsets --------
+
+		KafkaTopicPartitionState<TopicPartition> newPartition1 = new KafkaTopicPartitionState<>(
+				new KafkaTopicPartition(testTopic, 0), new TopicPartition(testTopic, 0));
+		newPartition1.setOffset(KafkaTopicPartitionStateSentinel.EARLIEST_OFFSET);
+
+		List<KafkaTopicPartitionState<TopicPartition>> newPartitions = new ArrayList<>(1);
+		newPartitions.add(newPartition1);
+
+		final ClosableBlockingQueue<KafkaTopicPartitionState<TopicPartition>> unassignedPartitionsQueue =
+				new ClosableBlockingQueue<>();
+
+		for (KafkaTopicPartitionState<TopicPartition> newPartition : newPartitions) {
+			unassignedPartitionsQueue.add(newPartition);
+		}
+
+		// --- ratelimiting properties ---
+		Properties properties = new Properties();
+		properties.put("kafka.consumer.ratelimit", "true");
+		properties.put("kafka.consumer.maxbytespersecond", "12");
+		KafkaConsumerCallBridge09 mockBridge = mock(KafkaConsumerCallBridge09.class);
+
+		// -- mock Handover and logger ---
+		Handover mockHandover = PowerMockito.mock(Handover.class);
+		doNothing().when(mockHandover).produce(any());
+		Logger mockLogger = mock(Logger.class);
+
+		MetricGroup metricGroup = new UnregisteredMetricsGroup();
+
+		// -- Test Kafka Consumer thread ---
+
+		KafkaConsumerThread testThread = new TestKafkaConsumerThreadRateLimit(
+				mockLogger,
+				mockHandover,
+				properties,
+				unassignedPartitionsQueue,
+				mockBridge,
+				"test",
+				30L,
+				false,
+				metricGroup,
+				metricGroup,
+				mockConsumer
+		);
+
+		testThread.start();
+		// Wait for 4 seconds to ensure atleast 2 calls to consumer.poll()
+		testThread.join(4000);
+		assertNotNull(testThread.getRateLimiter());
+
+		// With a maxbytespersecond as 12 and the first call returning 24 bytes per second, the rate
+		// should now be set to 0.5 to not violate the 12 bytes per second threshold
+		assertEquals(testThread.getRateLimiter().getRate(), 0.5, 1e5);
+		testThread.shutdown();
+
+	}
+
+
 	/**
 	 * A testable {@link KafkaConsumerThread} that injects multiple latches exactly before and after
 	 * partition reassignment, so that tests are eligible to setup various conditions before the reassignment happens
@@ -871,5 +971,33 @@ public class KafkaConsumerThreadTest {
 		}).when(mockConsumer).seekToEnd(any(TopicPartition.class));
 
 		return mockConsumer;
+	}
+
+	/**
+	 * A testable KafkaConsumer thread to test the ratelimiting feature using user-defined properties.
+	 * The mockConsumer does not mock all the methods mocked in {@link TestKafkaConsumerThread}.
+	 */
+
+	private static class TestKafkaConsumerThreadRateLimit extends KafkaConsumerThread {
+
+		KafkaConsumer mockConsumer;
+
+		public TestKafkaConsumerThreadRateLimit(Logger log,
+				Handover handover, Properties kafkaProperties,
+				ClosableBlockingQueue<KafkaTopicPartitionState<TopicPartition>> unassignedPartitionsQueue,
+				KafkaConsumerCallBridge09 consumerCallBridge, String threadName, long pollTimeout,
+				boolean useMetrics, MetricGroup consumerMetricGroup,
+				MetricGroup subtaskMetricGroup,
+				KafkaConsumer mockConsumer) {
+			super(log, handover, kafkaProperties, unassignedPartitionsQueue, consumerCallBridge,
+					threadName,
+					pollTimeout, useMetrics, consumerMetricGroup, subtaskMetricGroup);
+			this.mockConsumer = mockConsumer;
+		}
+
+		@Override
+		public KafkaConsumer getConsumer(Properties properties) {
+			return mockConsumer;
+		}
 	}
 }

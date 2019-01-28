@@ -28,6 +28,9 @@ import org.apache.flink.streaming.connectors.kafka.internals.KafkaTopicPartition
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaTopicPartitionStateSentinel;
 import org.apache.flink.streaming.connectors.kafka.internals.metrics.KafkaMetricWrapper;
 
+import org.apache.flink.shaded.guava18.com.google.common.util.concurrent.RateLimiter;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -64,6 +67,18 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  */
 @Internal
 public class KafkaConsumerThread extends Thread {
+
+	/** Property that sets the boolean flag to enable rate-limiting. **/
+	private static final String USE_RATELIMITING = "kafka.consumer.ratelimit";
+
+	/** Property that sets the max bytes per second per consumer. **/
+	private static final String BYTES_PER_SECOND_MAX = "kafka.consumer.maxbytespersecond";
+
+	/** Default value for the rate-limiting flag. **/
+	private static final boolean DEFAULT_USE_RATELIMITING = false;
+
+	/** Default value for max bytes per second per consumer. **/
+	private static final long DEFAULT_BYTES_PER_SECOND_MAX = 1 * 1024 * 1024;
 
 	/** Logger for this consumer. */
 	private final Logger log;
@@ -120,6 +135,15 @@ public class KafkaConsumerThread extends Thread {
 	/** Flag tracking whether the latest commit request has completed. */
 	private volatile boolean commitInProgress;
 
+	/** Ratelimiter. **/
+	private RateLimiter rateLimiter;
+
+	/** Max number of bytes per second that a consumer can read. **/
+	private long bytesPerSecondMax;
+
+	/** Boolean flag to indicate if the rate-limiting feature is enabled. **/
+	private boolean useRateLimiting;
+
 	public KafkaConsumerThread(
 			Logger log,
 			Handover handover,
@@ -150,6 +174,10 @@ public class KafkaConsumerThread extends Thread {
 		this.consumerReassignmentLock = new Object();
 		this.nextOffsetsToCommit = new AtomicReference<>();
 		this.running = true;
+		this.useRateLimiting = Boolean.valueOf(kafkaProperties
+				.getProperty(USE_RATELIMITING, Boolean.toString(DEFAULT_USE_RATELIMITING)));
+
+		setBytesPerSecondMax();
 	}
 
 	// ------------------------------------------------------------------------
@@ -210,6 +238,9 @@ public class KafkaConsumerThread extends Thread {
 			List<KafkaTopicPartitionState<TopicPartition>> newPartitions;
 
 			// main fetch loop
+			// Start time
+			long runLoopStartTimeNanos = System.nanoTime();
+			long runLoopEndTimeNanos;
 			while (running) {
 
 				// check if there is something to commit
@@ -254,7 +285,12 @@ public class KafkaConsumerThread extends Thread {
 				// get the next batch of records, unless we did not manage to hand the old batch over
 				if (records == null) {
 					try {
-						records = consumer.poll(pollTimeout);
+						records = getRecordsFromKafka();
+						runLoopEndTimeNanos = System.nanoTime();
+						// If useRateLimiting is set to true, rate is updated
+						updateRate(records, runLoopStartTimeNanos, runLoopEndTimeNanos);
+						runLoopStartTimeNanos = runLoopEndTimeNanos;
+
 					}
 					catch (WakeupException we) {
 						continue;
@@ -481,6 +517,95 @@ public class KafkaConsumerThread extends Thread {
 	KafkaConsumer<byte[], byte[]> getConsumer(Properties kafkaProperties) {
 		return new KafkaConsumer<>(kafkaProperties);
 	}
+
+	@VisibleForTesting
+	RateLimiter getRateLimiter() {
+		return rateLimiter;
+	}
+
+	// -----------------------------------------------------------------------
+	// Rate limiting methods
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Set the {{@link #bytesPerSecondMax}} per consumer using the global bytes per second.
+	 */
+	public void setBytesPerSecondMax() {
+		// TODO: Pass runtime context to get bytesPerSecondMax for this subtask.
+		long globalBytesPerSecondMax = Long.valueOf(kafkaProperties
+				.getProperty(BYTES_PER_SECOND_MAX, Long.toString(DEFAULT_BYTES_PER_SECOND_MAX)));
+		this.bytesPerSecondMax = globalBytesPerSecondMax;
+	}
+
+	/**
+	 * Adjust the rate (poll frequency) based on the current batch size of records returned.
+	 * @param records Records fetched from Kafka.
+	 * @param runLoopStartTimeNanos
+	 * @param runLoopEndTimeNanos
+	 */
+	private void updateRate(ConsumerRecords<byte[], byte[]> records,
+			long runLoopStartTimeNanos, long runLoopEndTimeNanos) {
+		if (useRateLimiting) {
+			long recordBatchSizeBytes = getRecordBatchSize(records);
+			long runLoopTimeNanos = runLoopEndTimeNanos - runLoopStartTimeNanos;
+			double adjustedRate = adjustPollingFrequency(runLoopTimeNanos,
+				recordBatchSizeBytes);
+			// The very first time this is invoked
+			if (rateLimiter == null) {
+				this.rateLimiter = RateLimiter.create(adjustedRate);
+			} else {
+				rateLimiter.setRate(adjustedRate);
+			}
+
+		}
+	}
+
+	/**
+	 *
+	 * @param runloopTimeNanos Time taken for the run loop.
+	 * @param recordBatchSizeBytes The size of the batch of records fetched, in bytes.
+	 * @return The desired polling frequency to comply with the {{@link #bytesPerSecondMax}}
+	 */
+	private double adjustPollingFrequency(long runloopTimeNanos, long recordBatchSizeBytes) {
+		double pollFrequencyHz = 1000000000.0d / runloopTimeNanos;
+		double bytesPerSecond = pollFrequencyHz * recordBatchSizeBytes;
+		if (bytesPerSecond <= bytesPerSecondMax) {
+			return pollFrequencyHz;
+		}
+		double adjustedRate = pollFrequencyHz * bytesPerSecondMax / bytesPerSecond;
+		return adjustedRate;
+	}
+
+	/**
+	 *
+	 * @param records List of ConsumerRecords.
+	 * @return Total batch size in bytes, including key and value.
+	 */
+	private long getRecordBatchSize(ConsumerRecords<byte[], byte[]> records) {
+		long recordBatchSizeBytes = 0L;
+		for (ConsumerRecord<byte[], byte[]> record: records) {
+			recordBatchSizeBytes += record.key().length;
+			recordBatchSizeBytes += record.value().length;
+		}
+
+		return recordBatchSizeBytes;
+
+	}
+
+	/**
+	 * Get records from Kafka. If the rate-limiting feature is turned on, this method is called at
+	 * a rate specified by the {@link #rateLimiter}.
+	 * @return ConsumerRecords
+	 */
+	@VisibleForTesting
+	ConsumerRecords<byte[], byte[]> getRecordsFromKafka() {
+		// For the very first poll, we do not rate-limit
+		if (useRateLimiting && rateLimiter != null) {
+			rateLimiter.acquire();
+		}
+		return consumer.poll(pollTimeout);
+	}
+
 
 	// ------------------------------------------------------------------------
 	//  Utilities
