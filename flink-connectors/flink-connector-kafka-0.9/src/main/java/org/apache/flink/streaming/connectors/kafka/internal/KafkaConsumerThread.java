@@ -69,10 +69,10 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 public class KafkaConsumerThread extends Thread {
 
 	/** Property that sets the boolean flag to enable rate-limiting. **/
-	private static final String USE_RATELIMITING = "kafka.consumer.ratelimit";
+	private static final String USE_RATELIMITING = "kafka.consumer.ratelimit.enabled";
 
 	/** Property that sets the max bytes per second per consumer. **/
-	private static final String BYTES_PER_SECOND_MAX = "kafka.consumer.bytespersecondmax";
+	private static final String BYTES_PER_SECOND_MAX = "kafka.consumer.ratelimit.maxbytespersecond";
 
 	/** Default value for the rate-limiting flag. **/
 	private static final boolean DEFAULT_USE_RATELIMITING = false;
@@ -238,9 +238,6 @@ public class KafkaConsumerThread extends Thread {
 			List<KafkaTopicPartitionState<TopicPartition>> newPartitions;
 
 			// main fetch loop
-			// Start time
-			long runLoopStartTimeNanos = System.nanoTime();
-			long runLoopEndTimeNanos;
 			while (running) {
 
 				// check if there is something to commit
@@ -286,10 +283,6 @@ public class KafkaConsumerThread extends Thread {
 				if (records == null) {
 					try {
 						records = getRecordsFromKafka();
-						runLoopEndTimeNanos = System.nanoTime();
-						// If useRateLimiting is set to true, rate is updated
-						updateRate(records, runLoopStartTimeNanos, runLoopEndTimeNanos);
-						runLoopStartTimeNanos = runLoopEndTimeNanos;
 
 					}
 					catch (WakeupException we) {
@@ -537,43 +530,13 @@ public class KafkaConsumerThread extends Thread {
 		this.bytesPerSecondMax = globalBytesPerSecondMax;
 	}
 
-	/**
-	 * Adjust the rate (poll frequency) based on the current batch size of records returned.
-	 * @param records Records fetched from Kafka.
-	 * @param runLoopStartTimeNanos
-	 * @param runLoopEndTimeNanos
-	 */
-	private void updateRate(ConsumerRecords<byte[], byte[]> records,
-			long runLoopStartTimeNanos, long runLoopEndTimeNanos) {
-		if (useRateLimiting) {
-			long recordBatchSizeBytes = getRecordBatchSize(records);
-			long runLoopTimeNanos = runLoopEndTimeNanos - runLoopStartTimeNanos;
-			double adjustedRate = adjustPollingFrequency(runLoopTimeNanos,
-				recordBatchSizeBytes);
-			// The very first time this is invoked
-			if (rateLimiter == null) {
-				this.rateLimiter = RateLimiter.create(adjustedRate);
-			} else {
-				rateLimiter.setRate(adjustedRate);
-			}
-
-		}
-	}
-
-	/**
+	/** Create RateLimiter with a rate of {{@link #bytesPerSecondMax}}.
 	 *
-	 * @param runloopTimeNanos Time taken for the run loop.
-	 * @param recordBatchSizeBytes The size of the batch of records fetched, in bytes.
-	 * @return The desired polling frequency to comply with the {{@link #bytesPerSecondMax}}
 	 */
-	private double adjustPollingFrequency(long runloopTimeNanos, long recordBatchSizeBytes) {
-		double pollFrequencyHz = 1000000000.0d / runloopTimeNanos;
-		double bytesPerSecond = pollFrequencyHz * recordBatchSizeBytes;
-		if (bytesPerSecond <= bytesPerSecondMax) {
-			return pollFrequencyHz;
+	private void createRateLimiter() {
+		if (rateLimiter == null) {
+			rateLimiter = RateLimiter.create(bytesPerSecondMax);
 		}
-		double adjustedRate = pollFrequencyHz * bytesPerSecondMax / bytesPerSecond;
-		return adjustedRate;
 	}
 
 	/**
@@ -581,8 +544,8 @@ public class KafkaConsumerThread extends Thread {
 	 * @param records List of ConsumerRecords.
 	 * @return Total batch size in bytes, including key and value.
 	 */
-	private long getRecordBatchSize(ConsumerRecords<byte[], byte[]> records) {
-		long recordBatchSizeBytes = 0L;
+	private int getRecordBatchSize(ConsumerRecords<byte[], byte[]> records) {
+		int recordBatchSizeBytes = 0;
 		for (ConsumerRecord<byte[], byte[]> record: records) {
 			recordBatchSizeBytes += record.key().length;
 			recordBatchSizeBytes += record.value().length;
@@ -599,11 +562,13 @@ public class KafkaConsumerThread extends Thread {
 	 */
 	@VisibleForTesting
 	ConsumerRecords<byte[], byte[]> getRecordsFromKafka() {
-		// For the very first poll, we do not rate-limit
-		if (useRateLimiting && rateLimiter != null) {
-			rateLimiter.acquire();
+		ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
+		if (useRateLimiting) {
+			createRateLimiter();
+			int bytesRead = getRecordBatchSize(records);
+			rateLimiter.acquire(bytesRead);
 		}
-		return consumer.poll(pollTimeout);
+		return records;
 	}
 
 

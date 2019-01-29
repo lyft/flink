@@ -706,19 +706,17 @@ public class KafkaConsumerThreadTest {
 		assertEquals(0, unassignedPartitionsQueue.size());
 	}
 
-
 	@Test(timeout = 10000)
 	public void testRatelimiting() throws Exception {
 		final String testTopic = "test-topic-ratelimit";
 
 		// -------- setup mock KafkaConsumer with test data --------
 		final int partition = 0;
-		final byte[] payload = new byte[] {1, 2, 3, 4};
+		final byte[] payload = new byte[] {1};
 
 		final List<ConsumerRecord<byte[], byte[]>> records = Arrays.asList(
 				new ConsumerRecord<>(testTopic, partition, 15, payload, payload),
-				new ConsumerRecord<>(testTopic, partition, 16, payload, payload),
-				new ConsumerRecord<>(testTopic, partition, 17, payload, payload));
+				new ConsumerRecord<>(testTopic, partition, 16, payload, payload));
 
 		final Map<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> data = new HashMap<>();
 		data.put(new TopicPartition(testTopic, partition), records);
@@ -728,10 +726,7 @@ public class KafkaConsumerThreadTest {
 		// Sleep for one second in each consumer.poll() call to return 24 bytes / second
 		final KafkaConsumer<byte[], byte[]> mockConsumer = mock(KafkaConsumer.class);
 		PowerMockito.when(mockConsumer.poll(anyLong())).thenAnswer(
-				invocationOnMock -> {
-					Thread.sleep(1000L);
-					return consumerRecords;
-				}
+				invocationOnMock -> consumerRecords
 		);
 
 		whenNew(KafkaConsumer.class).withAnyArguments().thenReturn(mockConsumer);
@@ -754,8 +749,8 @@ public class KafkaConsumerThreadTest {
 
 		// --- ratelimiting properties ---
 		Properties properties = new Properties();
-		properties.put("kafka.consumer.ratelimit", "true");
-		properties.put("kafka.consumer.bytespersecondmax", "12");
+		properties.put("kafka.consumer.ratelimit.enabled", "true");
+		properties.put("kafka.consumer.ratelimit.maxbytespersecond", "1");
 		KafkaConsumerCallBridge mockBridge = mock(KafkaConsumerCallBridge.class);
 
 		// -- mock Handover and logger ---
@@ -783,12 +778,15 @@ public class KafkaConsumerThreadTest {
 
 		testThread.start();
 		// Wait for 4 seconds to ensure atleast 2 calls to consumer.poll()
-		testThread.join(4000);
+		testThread.join(5000);
 		assertNotNull(testThread.getRateLimiter());
+		assertEquals(testThread.getRateLimiter().getRate(), 1, 0);
 
-		// With a maxbytespersecond as 12 and the first call returning 24 bytes per second, the rate
-		// should now be set to 0.5 to not violate the 12 bytes per second threshold
-		assertEquals(testThread.getRateLimiter().getRate(), 0.5, 1e5);
+		// In a period of 5 seconds, no more than 3 calls to poll should be made.
+		// The expected rate is 1 byte / second and we read 4 bytes in every consumer.poll()
+		// call. The rate limiter should thus slow down the call by 4 seconds when the rate takes
+		// effect.
+		verify(mockConsumer, times(3)).poll(anyLong());
 		testThread.shutdown();
 
 	}
