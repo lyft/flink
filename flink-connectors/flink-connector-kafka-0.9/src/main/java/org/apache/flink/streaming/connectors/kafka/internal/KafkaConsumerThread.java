@@ -523,17 +523,18 @@ public class KafkaConsumerThread extends Thread {
 	/**
 	 * Set the {{@link #bytesPerSecondMax}} per consumer using the global bytes per second.
 	 */
-	public void setBytesPerSecondMax() {
+	private void setBytesPerSecondMax() {
 		// TODO: Pass runtime context to get bytesPerSecondMax for this subtask.
 		long globalBytesPerSecondMax = Long.valueOf(kafkaProperties
 				.getProperty(BYTES_PER_SECOND_MAX, Long.toString(DEFAULT_BYTES_PER_SECOND_MAX)));
 		this.bytesPerSecondMax = globalBytesPerSecondMax;
+		log.info("Consuming with a ratelimit of " + bytesPerSecondMax + " per second");
 	}
 
 	/** Create RateLimiter with a rate of {{@link #bytesPerSecondMax}}.
 	 *
 	 */
-	private void createRateLimiter() {
+	private void getOrCreateRateLimiter() {
 		if (rateLimiter == null) {
 			rateLimiter = RateLimiter.create(bytesPerSecondMax);
 		}
@@ -547,12 +548,14 @@ public class KafkaConsumerThread extends Thread {
 	private int getRecordBatchSize(ConsumerRecords<byte[], byte[]> records) {
 		int recordBatchSizeBytes = 0;
 		for (ConsumerRecord<byte[], byte[]> record: records) {
-			recordBatchSizeBytes += record.key().length;
+			// Null is an allowed value for the key
+			if (record.key() != null) {
+				recordBatchSizeBytes += record.key().length;
+			}
 			recordBatchSizeBytes += record.value().length;
+
 		}
-
 		return recordBatchSizeBytes;
-
 	}
 
 	/**
@@ -564,9 +567,10 @@ public class KafkaConsumerThread extends Thread {
 	ConsumerRecords<byte[], byte[]> getRecordsFromKafka() {
 		ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
 		if (useRateLimiting) {
-			createRateLimiter();
+			getOrCreateRateLimiter();
 			int bytesRead = getRecordBatchSize(records);
-			rateLimiter.acquire(bytesRead);
+			// Ensure number of permits is > 0
+			rateLimiter.acquire(Math.max(1, bytesRead));
 		}
 		return records;
 	}
