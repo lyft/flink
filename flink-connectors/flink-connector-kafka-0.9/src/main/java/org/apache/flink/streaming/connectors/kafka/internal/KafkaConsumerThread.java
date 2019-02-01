@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.metrics.MetricGroup;
+import org.apache.flink.streaming.connectors.kafka.config.RateLimitingConfig;
 import org.apache.flink.streaming.connectors.kafka.internals.ClosableBlockingQueue;
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaCommitCallback;
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaTopicPartitionState;
@@ -68,17 +69,14 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 @Internal
 public class KafkaConsumerThread extends Thread {
 
-	/** Property that sets the boolean flag to enable rate-limiting. **/
-	private static final String USE_RATELIMITING = "kafka.consumer.ratelimit.enabled";
-
-	/** Property that sets the max bytes per second per consumer. **/
-	private static final String BYTES_PER_SECOND_MAX = "kafka.consumer.ratelimit.maxbytespersecond";
+	/** Consumer prefix for Ratelimiting. **/
+	private static final String CONSUMER_PREFIX = "kafka";
 
 	/** Default value for the rate-limiting flag. **/
 	private static final boolean DEFAULT_USE_RATELIMITING = false;
 
 	/** Default value for max bytes per second per consumer. **/
-	private static final long DEFAULT_BYTES_PER_SECOND_MAX = 1 * 1024 * 1024;
+	private static final long DEFAULT_BYTES_PER_SECOND_MAX = 1 * 1024 * 1024L;
 
 	/** Logger for this consumer. */
 	private final Logger log;
@@ -135,13 +133,13 @@ public class KafkaConsumerThread extends Thread {
 	/** Flag tracking whether the latest commit request has completed. */
 	private volatile boolean commitInProgress;
 
-	/** Ratelimiter. **/
+	/** Ratelimiter. */
 	private RateLimiter rateLimiter;
 
-	/** Max number of bytes per second that a consumer can read. **/
+	/** Max number of bytes per second that a consumer can read. */
 	private long bytesPerSecondMax;
 
-	/** Boolean flag to indicate if the rate-limiting feature is enabled. **/
+	/** Boolean flag to indicate if the rate-limiting feature is enabled. */
 	private boolean useRateLimiting;
 
 	public KafkaConsumerThread(
@@ -174,10 +172,14 @@ public class KafkaConsumerThread extends Thread {
 		this.consumerReassignmentLock = new Object();
 		this.nextOffsetsToCommit = new AtomicReference<>();
 		this.running = true;
-		this.useRateLimiting = Boolean.valueOf(kafkaProperties
-				.getProperty(USE_RATELIMITING, Boolean.toString(DEFAULT_USE_RATELIMITING)));
 
-		setBytesPerSecondMax();
+		this.useRateLimiting = Boolean.valueOf(kafkaProperties
+				.getProperty(RateLimitingConfig.getRatelimitFlag(CONSUMER_PREFIX),
+					Boolean.toString(DEFAULT_USE_RATELIMITING)));
+
+		this.bytesPerSecondMax = Long.valueOf(kafkaProperties
+				.getProperty(RateLimitingConfig.getRatelimitMaxBytesPerSecond(CONSUMER_PREFIX),
+					Long.toString(DEFAULT_BYTES_PER_SECOND_MAX)));
 	}
 
 	// ------------------------------------------------------------------------
@@ -520,22 +522,12 @@ public class KafkaConsumerThread extends Thread {
 	// Rate limiting methods
 	// -----------------------------------------------------------------------
 
-	/**
-	 * Set the {{@link #bytesPerSecondMax}} per consumer using the global bytes per second.
-	 */
-	private void setBytesPerSecondMax() {
-		// TODO: Pass runtime context to get bytesPerSecondMax for this subtask.
-		long globalBytesPerSecondMax = Long.valueOf(kafkaProperties
-				.getProperty(BYTES_PER_SECOND_MAX, Long.toString(DEFAULT_BYTES_PER_SECOND_MAX)));
-		this.bytesPerSecondMax = globalBytesPerSecondMax;
-		log.info("Consuming with a ratelimit of " + bytesPerSecondMax + " per second");
-	}
-
 	/** Create RateLimiter with a rate of {{@link #bytesPerSecondMax}}.
 	 *
 	 */
 	private void getOrCreateRateLimiter() {
 		if (rateLimiter == null) {
+			log.info("Consuming data at a rate limit of " + bytesPerSecondMax + " bytes per second");
 			rateLimiter = RateLimiter.create(bytesPerSecondMax);
 		}
 	}
