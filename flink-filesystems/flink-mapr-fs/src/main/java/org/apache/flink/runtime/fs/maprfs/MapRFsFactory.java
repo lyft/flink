@@ -39,6 +39,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 public class MapRFsFactory implements FileSystemFactory {
 
 	private static final Logger LOG = LoggerFactory.getLogger(MapRFsFactory.class);
+	private Configuration flinkConfig;
 
 	// ------------------------------------------------------------------------
 
@@ -50,6 +51,7 @@ public class MapRFsFactory implements FileSystemFactory {
 	@Override
 	public void configure(Configuration config) {
 		// nothing to configure based on the configuration here
+		this.flinkConfig = config;
 	}
 
 	@Override
@@ -59,7 +61,7 @@ public class MapRFsFactory implements FileSystemFactory {
 		try {
 			LOG.info("Trying to load and instantiate MapR File System");
 
-			return new MapRFileSystem(fsUri);
+			return new MapRFileSystem(fsUri, flinkConfig);
 		}
 		catch (LinkageError e) {
 			throw new IOException("Could not load MapR file system. "  +

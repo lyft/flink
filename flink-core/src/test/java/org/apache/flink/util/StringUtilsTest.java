@@ -22,6 +22,9 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
+
+import java.util.Random;
 
 /**
  * Tests for the {@link StringUtils}.
@@ -56,4 +59,14 @@ public class StringUtilsTest extends TestLogger {
 		String hex = StringUtils.byteToHexString(byteArray);
 		assertEquals("019f314a", hex);
 	}
+
+	@Test
+	public void testGenerateAlphanumeric() {
+		String str = StringUtils.generateRandomAlphanumericString(new Random(), 256);
+
+		if (!str.matches("[a-zA-Z0-9]{256}")) {
+			fail("Not alphanumeric: " + str);
+		}
+	}
+
 }

@@ -133,7 +133,7 @@ public final class FsCheckpointMetadataOutputStream extends CheckpointMetadataOu
 					FileStateHandle metaDataHandle = new FileStateHandle(metadataFilePath, size);
 
 					return new FsCompletedCheckpointStorageLocation(
-							fileSystem, exclusiveCheckpointDir, metaDataHandle, exclusiveCheckpointDir.toString());
+							fileSystem, exclusiveCheckpointDir, metaDataHandle, metaDataHandle.getFilePath().getParent().toString());
 				}
 				catch (Exception e) {
 					try {

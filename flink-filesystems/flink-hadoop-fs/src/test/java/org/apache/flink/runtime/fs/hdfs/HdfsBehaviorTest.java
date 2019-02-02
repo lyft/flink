@@ -65,7 +65,7 @@ public class HdfsBehaviorTest extends FileSystemBehaviorTestSuite {
 		hdfsCluster = builder.build();
 
 		org.apache.hadoop.fs.FileSystem hdfs = hdfsCluster.getFileSystem();
-		fs = new HadoopFileSystem(hdfs);
+		fs = new HadoopFileSystem(hdfs, new org.apache.flink.configuration.Configuration());
 
 		basePath = new Path(hdfs.getUri().toString() + "/tests");
 	}

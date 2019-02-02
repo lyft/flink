@@ -60,7 +60,7 @@ import static org.apache.flink.util.Preconditions.checkState;
  * periodically check the currently open streams once the limit of open streams is reached.
  */
 @Internal
-public class LimitedConnectionsFileSystem extends FileSystem {
+public class LimitedConnectionsFileSystem extends AbstractEntropyInjectingFileSystemBase {
 
 	private static final Logger LOG = LoggerFactory.getLogger(LimitedConnectionsFileSystem.class);
 
@@ -116,8 +116,8 @@ public class LimitedConnectionsFileSystem extends FileSystem {
 	 * @param originalFs              The original file system to which connections are limited.
 	 * @param maxNumOpenStreamsTotal  The maximum number of concurrent open streams (0 means no limit).
 	 */
-	public LimitedConnectionsFileSystem(FileSystem originalFs, int maxNumOpenStreamsTotal) {
-		this(originalFs, maxNumOpenStreamsTotal, 0, 0);
+	public LimitedConnectionsFileSystem(FileSystem originalFs, int maxNumOpenStreamsTotal, Configuration flinkConfig) {
+		this(originalFs, maxNumOpenStreamsTotal, 0, 0, flinkConfig);
 	}
 
 	/**
@@ -138,8 +138,9 @@ public class LimitedConnectionsFileSystem extends FileSystem {
 			FileSystem originalFs,
 			int maxNumOpenStreamsTotal,
 			long streamOpenTimeout,
-			long streamInactivityTimeout) {
-		this(originalFs, maxNumOpenStreamsTotal, 0, 0, streamOpenTimeout, streamInactivityTimeout);
+			long streamInactivityTimeout,
+			Configuration flinkConfig) {
+		this(originalFs, maxNumOpenStreamsTotal, 0, 0, streamOpenTimeout, streamInactivityTimeout, flinkConfig);
 	}
 
 	/**
@@ -165,8 +166,10 @@ public class LimitedConnectionsFileSystem extends FileSystem {
 			int maxNumOpenOutputStreams,
 			int maxNumOpenInputStreams,
 			long streamOpenTimeout,
-			long streamInactivityTimeout) {
+			long streamInactivityTimeout,
+			Configuration flinkConfig) {
 
+		super(flinkConfig);
 		checkArgument(maxNumOpenStreamsTotal >= 0, "maxNumOpenStreamsTotal must be >= 0");
 		checkArgument(maxNumOpenOutputStreams >= 0, "maxNumOpenOutputStreams must be >= 0");
 		checkArgument(maxNumOpenInputStreams >= 0, "maxNumOpenInputStreams must be >= 0");
