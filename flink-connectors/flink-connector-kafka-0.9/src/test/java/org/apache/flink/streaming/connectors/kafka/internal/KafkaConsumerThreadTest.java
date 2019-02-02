@@ -22,6 +22,7 @@ import org.apache.flink.core.testutils.MultiShotLatch;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.connectors.kafka.config.RateLimitingConfig;
 import org.apache.flink.streaming.connectors.kafka.internals.ClosableBlockingQueue;
 import org.apache.flink.streaming.connectors.kafka.internals.KafkaCommitCallback;
@@ -749,9 +750,12 @@ public class KafkaConsumerThreadTest {
 		}
 
 		// --- ratelimiting properties ---
+		StreamingRuntimeContext mockRuntimeContext = mock(StreamingRuntimeContext.class);
+		when(mockRuntimeContext.getNumberOfParallelSubtasks()).thenReturn(1);
 		Properties properties = new Properties();
-		properties.put(RateLimitingConfig.getRatelimitFlag("kafka"), "true");
-		properties.put(RateLimitingConfig.getRatelimitMaxBytesPerSecond("kafka"), "1");
+		RateLimitingConfig.setRateLimitFlag("kafka", properties, true);
+		RateLimitingConfig.setGlobalMaxBytesPerSecond("kafka", properties, 1);
+		RateLimitingConfig.setLocalMaxBytesPerSecond(mockRuntimeContext, properties, "kafka");
 		KafkaConsumerCallBridge mockBridge = mock(KafkaConsumerCallBridge.class);
 
 		// -- mock Handover and logger ---

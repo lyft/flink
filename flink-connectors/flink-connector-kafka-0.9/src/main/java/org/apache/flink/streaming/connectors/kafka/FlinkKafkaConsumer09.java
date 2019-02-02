@@ -86,12 +86,6 @@ public class FlinkKafkaConsumer09<T> extends FlinkKafkaConsumerBase<T> {
 	/** Configuration to set consumer prefix for ratelimiting. **/
 	private static final String CONSUMER_PREFIX = "kafka";
 
-	/** Default value for ratelimit flag. **/
-	private static final boolean DEFAULT_USE_RATELIMITING = false;
-
-	/** Default value for ratelimit which is default max.partition.fetch.bytes. **/
-	private static final long DEFAULT_MAX_BYTES_PER_SECOND = 1 * 1024 * 1024L;
-
 	// ------------------------------------------------------------------------
 
 	/** User-supplied properties for Kafka. **/
@@ -257,6 +251,7 @@ public class FlinkKafkaConsumer09<T> extends FlinkKafkaConsumerBase<T> {
 			properties.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 		}
 
+		RateLimitingConfig.setLocalMaxBytesPerSecond(runtimeContext, this.properties, CONSUMER_PREFIX);
 		return new Kafka09Fetcher<>(
 				sourceContext,
 				assignedPartitionsWithInitialOffsets,
@@ -322,24 +317,4 @@ public class FlinkKafkaConsumer09<T> extends FlinkKafkaConsumerBase<T> {
 		props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, deSerName);
 	}
 
-	/**
-	 * If ratelimiting is enabled, set maxBytesPerSecond per consumer based on a global ratelimit.
-	 * @param runtimeContext
-	 * @param properties
-	 */
-	public void setRateLimitingProperties(
-			StreamingRuntimeContext runtimeContext,
-			Properties properties) {
-		boolean useRatelimiting = Boolean.valueOf(properties.getProperty(RateLimitingConfig
-				.getRatelimitFlag(CONSUMER_PREFIX), Boolean.toString(DEFAULT_USE_RATELIMITING)));
-
-		if (useRatelimiting) {
-			long globalRatelimit = Long.valueOf(properties.getProperty(RateLimitingConfig
-							.getRatelimitMaxBytesPerSecond(CONSUMER_PREFIX), Long.toString(DEFAULT_MAX_BYTES_PER_SECOND)));
-			//Calculate maxBytesPersecond per consumer
-			long localRatelimit = globalRatelimit / runtimeContext.getNumberOfParallelSubtasks();
-			properties.setProperty(RateLimitingConfig.getRatelimitMaxBytesPerSecond(CONSUMER_PREFIX),
-					String.valueOf(localRatelimit));
-		}
-	}
 }

@@ -18,6 +18,9 @@
 
 package org.apache.flink.streaming.connectors.kafka.config;
 
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
+
+import java.util.Properties;
 
 /**
  * A generic RateLimitingConfig that can be used to set ratelimiting properties across
@@ -34,21 +37,78 @@ public class RateLimitingConfig {
 	/** Delimiter for properties. */
 	private static final String DELIMITER = ".";
 
+	/** Default value for ratelimiting flag. */
+	private static final boolean DEFAULT_USE_RATELIMITING = false;
+
 	/**
 	 *
 	 * @param consumerPrefix consumer name.
-	 * @return fully defined property with rate limiting flag.
+	 * @param properties
+	 * @return Get rate limiting flag.
 	 */
-	public static String getRatelimitFlag(String consumerPrefix) {
-		return consumerPrefix.concat(DELIMITER).concat(RATELIMITING_FLAG);
+	public static boolean getRatelimitFlag(String consumerPrefix, Properties properties) {
+		return Boolean.valueOf(properties.getProperty(getRatelimitingFlagProperty(consumerPrefix),
+			String.valueOf(DEFAULT_USE_RATELIMITING)));
 	}
 
 	/**
 	 *
 	 * @param consumerPrefix consumer name.
-	 * @return a fully defined property with max bytes per second.
+	 * @param properties
+	 * @return Get max bytes per second.
 	 */
-	public static String getRatelimitMaxBytesPerSecond(String consumerPrefix) {
+	public static long getMaxBytesPerSecond(String consumerPrefix, Properties properties) {
+		return Long.valueOf(properties.getProperty(getMaxBytesPerSecondProperty(consumerPrefix)));
+	}
+
+	/**
+	 *
+	 * @param consumerPrefix consumer name.
+	 * @param properties
+	 * @param flag
+	 *
+	 */
+	public static void setRateLimitFlag(String consumerPrefix, Properties properties, boolean flag) {
+		properties.setProperty(getRatelimitingFlagProperty(consumerPrefix), String.valueOf(flag));
+	}
+
+	/**
+	 *
+	 * @param consumerPrefix consumer name.
+	 * @param properties
+	 * @param maxBytes
+	 *
+	 */
+	public static void setGlobalMaxBytesPerSecond(String consumerPrefix, Properties properties, long maxBytes) {
+		properties.setProperty(getMaxBytesPerSecondProperty(consumerPrefix), String.valueOf(maxBytes));
+	}
+
+	/**
+	 * If ratelimiting is enabled, set maxBytesPerSecond per consumer based on a global ratelimit.
+	 * @param runtimeContext
+	 * @param properties
+	 * @param consumerPrefix Consumer name.
+	 */
+	public static void setLocalMaxBytesPerSecond(
+		StreamingRuntimeContext runtimeContext,
+		Properties properties,
+		String consumerPrefix) {
+		boolean useRatelimiting = getRatelimitFlag(consumerPrefix, properties);
+
+		if (useRatelimiting) {
+			long globalRatelimit = getMaxBytesPerSecond(consumerPrefix, properties);
+			//Calculate maxBytesPersecond per consumer
+			long localRatelimit = globalRatelimit / runtimeContext.getNumberOfParallelSubtasks();
+			String maxBytesProperty = getMaxBytesPerSecondProperty(consumerPrefix);
+			properties.setProperty(maxBytesProperty, String.valueOf(localRatelimit));
+		}
+	}
+
+	private static String getRatelimitingFlagProperty(String consumerPrefix) {
+		return consumerPrefix.concat(DELIMITER).concat(RATELIMITING_FLAG);
+	}
+
+	private static String getMaxBytesPerSecondProperty(String consumerPrefix) {
 		return consumerPrefix.concat(DELIMITER).concat(RATELIMITING_MAX_BYTES_PER_SECOND);
 	}
 

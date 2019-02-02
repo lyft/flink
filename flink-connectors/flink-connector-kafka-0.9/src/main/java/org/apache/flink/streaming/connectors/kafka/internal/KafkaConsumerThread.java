@@ -173,13 +173,11 @@ public class KafkaConsumerThread extends Thread {
 		this.nextOffsetsToCommit = new AtomicReference<>();
 		this.running = true;
 
-		this.useRateLimiting = Boolean.valueOf(kafkaProperties
-				.getProperty(RateLimitingConfig.getRatelimitFlag(CONSUMER_PREFIX),
-					Boolean.toString(DEFAULT_USE_RATELIMITING)));
-
-		this.bytesPerSecondMax = Long.valueOf(kafkaProperties
-				.getProperty(RateLimitingConfig.getRatelimitMaxBytesPerSecond(CONSUMER_PREFIX),
-					Long.toString(DEFAULT_BYTES_PER_SECOND_MAX)));
+		this.useRateLimiting = RateLimitingConfig.getRatelimitFlag(CONSUMER_PREFIX, kafkaProperties);
+		if (useRateLimiting) {
+			this.bytesPerSecondMax = RateLimitingConfig
+				.getMaxBytesPerSecond(CONSUMER_PREFIX, kafkaProperties);
+		}
 	}
 
 	// ------------------------------------------------------------------------
