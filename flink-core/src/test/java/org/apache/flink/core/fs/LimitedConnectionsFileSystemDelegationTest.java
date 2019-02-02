@@ -18,6 +18,7 @@
 
 package org.apache.flink.core.fs;
 
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FileSystem.WriteMode;
 
 import org.junit.Rule;
@@ -56,7 +57,7 @@ public class LimitedConnectionsFileSystemDelegationTest {
 		when(fs.create(any(Path.class), any(WriteMode.class))).thenReturn(mock(FSDataOutputStream.class));
 		when(fs.create(any(Path.class), anyBoolean(), anyInt(), anyShort(), anyLong())).thenReturn(mock(FSDataOutputStream.class));
 
-		final LimitedConnectionsFileSystem lfs = new LimitedConnectionsFileSystem(fs, 1000);
+		final LimitedConnectionsFileSystem lfs = new LimitedConnectionsFileSystem(fs, 1000, new Configuration());
 		final Random rnd = new Random();
 
 		lfs.isDistributedFS();
@@ -170,7 +171,7 @@ public class LimitedConnectionsFileSystemDelegationTest {
 		final FileSystem fs = mock(FileSystem.class);
 		when(fs.create(any(Path.class), any(WriteMode.class))).thenReturn(mockOut);
 
-		final LimitedConnectionsFileSystem lfs = new LimitedConnectionsFileSystem(fs, 100);
+		final LimitedConnectionsFileSystem lfs = new LimitedConnectionsFileSystem(fs, 100, new Configuration());
 		final FSDataOutputStream out = lfs.create(mock(Path.class), WriteMode.OVERWRITE);
 
 		// validate the output stream
@@ -214,7 +215,7 @@ public class LimitedConnectionsFileSystemDelegationTest {
 		final FileSystem fs = mock(FileSystem.class);
 		when(fs.open(any(Path.class))).thenReturn(mockIn);
 
-		final LimitedConnectionsFileSystem lfs = new LimitedConnectionsFileSystem(fs, 100);
+		final LimitedConnectionsFileSystem lfs = new LimitedConnectionsFileSystem(fs, 100, new Configuration());
 		final FSDataInputStream in = lfs.open(mock(Path.class));
 
 		// validate the input stream

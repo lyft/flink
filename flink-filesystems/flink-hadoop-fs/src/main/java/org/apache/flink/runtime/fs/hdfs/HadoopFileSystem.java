@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.fs.hdfs;
 
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.fs.AbstractEntropyInjectingFileSystemBase;
 import org.apache.flink.core.fs.BlockLocation;
 import org.apache.flink.core.fs.FileStatus;
 import org.apache.flink.core.fs.FileSystem;
@@ -33,7 +35,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 /**
  * A {@link FileSystem} that wraps an {@link org.apache.hadoop.fs.FileSystem Hadoop File System}.
  */
-public class HadoopFileSystem extends FileSystem {
+public class HadoopFileSystem extends AbstractEntropyInjectingFileSystemBase {
 
 	/** The wrapped Hadoop File System. */
 	private final org.apache.hadoop.fs.FileSystem fs;
@@ -49,7 +51,8 @@ public class HadoopFileSystem extends FileSystem {
 	 *
 	 * @param hadoopFileSystem The Hadoop FileSystem that will be used under the hood.
 	 */
-	public HadoopFileSystem(org.apache.hadoop.fs.FileSystem hadoopFileSystem) {
+	public HadoopFileSystem(org.apache.hadoop.fs.FileSystem hadoopFileSystem, Configuration flinkConfig) {
+		super(flinkConfig);
 		this.fs = checkNotNull(hadoopFileSystem, "hadoopFileSystem");
 	}
 

@@ -18,6 +18,7 @@
 
 package org.apache.flink.core.fs;
 
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FileSystem.WriteMode;
 import org.apache.flink.core.fs.local.LocalFileSystem;
 import org.apache.flink.core.testutils.CheckedThread;
@@ -52,7 +53,8 @@ public class LimitedConnectionsFileSystemTest {
 				Integer.MAX_VALUE,  // limited outgoing
 				Integer.MAX_VALUE,  // unlimited incoming
 				Long.MAX_VALUE - 1, // long timeout, close to overflow
-				Long.MAX_VALUE - 1); // long timeout, close to overflow
+				Long.MAX_VALUE - 1,
+				new Configuration()); // long timeout, close to overflow
 
 		assertEquals(Integer.MAX_VALUE, limitedFs.getMaxNumOpenStreamsTotal());
 		assertEquals(Integer.MAX_VALUE, limitedFs.getMaxNumOpenOutputStreams());
@@ -73,7 +75,8 @@ public class LimitedConnectionsFileSystemTest {
 				maxConcurrentOpen,  // limited outgoing
 				Integer.MAX_VALUE,  // unlimited incoming
 				0,
-				0);
+				0,
+				new Configuration());
 
 		final WriterThread[] threads = new WriterThread[numThreads];
 		for (int i = 0; i < numThreads; i++) {
@@ -101,7 +104,8 @@ public class LimitedConnectionsFileSystemTest {
 				Integer.MAX_VALUE,  // unlimited outgoing
 				maxConcurrentOpen,  // limited incoming
 				0,
-				0);
+				0,
+				new Configuration());
 
 		final Random rnd = new Random();
 
@@ -129,7 +133,8 @@ public class LimitedConnectionsFileSystemTest {
 
 		final LimitedConnectionsFileSystem limitedFs = new LimitedConnectionsFileSystem(
 				LocalFileSystem.getSharedInstance(),
-				maxConcurrentOpen);  // limited total
+				maxConcurrentOpen,
+				new Configuration());  // limited total
 
 		final Random rnd = new Random();
 
@@ -166,7 +171,8 @@ public class LimitedConnectionsFileSystemTest {
 				LocalFileSystem.getSharedInstance(),
 				maxConcurrentOpen, // limited total
 				openTimeout,       // small opening timeout
-				0L);               // infinite inactivity timeout
+				0L,
+				new Configuration());               // infinite inactivity timeout
 
 		// create the threads that block all streams
 		final BlockingWriterThread[] threads = new BlockingWriterThread[maxConcurrentOpen];
@@ -206,7 +212,8 @@ public class LimitedConnectionsFileSystemTest {
 				LocalFileSystem.getSharedInstance(),
 				maxConcurrentOpen, // limited total
 				openTimeout,       // small opening timeout
-				0L);               // infinite inactivity timeout
+				0L,
+				new Configuration());               // infinite inactivity timeout
 
 		// create the threads that block all streams
 		final Random rnd = new Random();
@@ -254,7 +261,8 @@ public class LimitedConnectionsFileSystemTest {
 				maxConcurrentOpen,  // limit on output streams
 				Integer.MAX_VALUE,  // no limit on input streams
 				0,
-				50);               // timeout of 50 ms
+				50, // timeout of 50 ms
+				new Configuration());
 
 		final WriterThread[] threads = new WriterThread[numThreads];
 		final BlockingWriterThread[] blockers = new BlockingWriterThread[numThreads];
@@ -309,7 +317,8 @@ public class LimitedConnectionsFileSystemTest {
 				Integer.MAX_VALUE,  // limit on output streams
 				maxConcurrentOpen,  // no limit on input streams
 				0,
-				50);               // timeout of 50 ms
+				50,
+				new Configuration());               // timeout of 50 ms
 
 		final Random rnd = new Random();
 
@@ -369,7 +378,8 @@ public class LimitedConnectionsFileSystemTest {
 				LocalFileSystem.getSharedInstance(),
 				maxConcurrentOpen,  // limited total
 				0L,                 // no opening timeout
-				50L);               // inactivity timeout of 50 ms
+				50L,
+				new Configuration());               // inactivity timeout of 50 ms
 
 		final Random rnd = new Random();
 
@@ -426,7 +436,7 @@ public class LimitedConnectionsFileSystemTest {
 
 	@Test
 	public void testFailingStreamsUnregister() throws Exception {
-		final LimitedConnectionsFileSystem fs = new LimitedConnectionsFileSystem(new FailFs(), 1);
+		final LimitedConnectionsFileSystem fs = new LimitedConnectionsFileSystem(new FailFs(), 1, new Configuration());
 
 		assertEquals(0, fs.getNumberOfOpenInputStreams());
 		assertEquals(0, fs.getNumberOfOpenOutputStreams());
@@ -458,7 +468,7 @@ public class LimitedConnectionsFileSystemTest {
 	@Test
 	public void testSlowOutputStreamNotClosed() throws Exception {
 		final LimitedConnectionsFileSystem fs = new LimitedConnectionsFileSystem(
-				LocalFileSystem.getSharedInstance(), 1, 0L, 1000L);
+				LocalFileSystem.getSharedInstance(), 1, 0L, 1000L, new Configuration());
 
 		// some competing threads
 		final Random rnd = new Random();
@@ -502,7 +512,7 @@ public class LimitedConnectionsFileSystemTest {
 		createRandomContents(file, new Random(), 50);
 
 		final LimitedConnectionsFileSystem fs = new LimitedConnectionsFileSystem(
-				LocalFileSystem.getSharedInstance(), 1, 0L, 1000L);
+				LocalFileSystem.getSharedInstance(), 1, 0L, 1000L, new Configuration());
 
 		// some competing threads
 		final WriterThread[] threads = new WriterThread[10];

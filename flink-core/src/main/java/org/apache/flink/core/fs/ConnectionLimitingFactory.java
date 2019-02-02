@@ -37,6 +37,8 @@ public class ConnectionLimitingFactory implements FileSystemFactory {
 
 	private final ConnectionLimitingSettings settings;
 
+	private Configuration flinkConfig;
+
 	private ConnectionLimitingFactory(
 			FileSystemFactory factory,
 			ConnectionLimitingSettings settings) {
@@ -55,6 +57,7 @@ public class ConnectionLimitingFactory implements FileSystemFactory {
 	@Override
 	public void configure(Configuration config) {
 		factory.configure(config);
+		flinkConfig = config;
 	}
 
 	@Override
@@ -62,7 +65,7 @@ public class ConnectionLimitingFactory implements FileSystemFactory {
 		FileSystem original = factory.create(fsUri);
 		return new LimitedConnectionsFileSystem(original,
 				settings.limitTotal, settings.limitOutput, settings.limitInput,
-				settings.streamOpenTimeout, settings.streamInactivityTimeout);
+				settings.streamOpenTimeout, settings.streamInactivityTimeout, flinkConfig);
 	}
 
 	// ------------------------------------------------------------------------
@@ -89,7 +92,9 @@ public class ConnectionLimitingFactory implements FileSystemFactory {
 			return factory;
 		}
 		else {
-			return new ConnectionLimitingFactory(factory, settings);
+			ConnectionLimitingFactory connectionLimitingFactory = new ConnectionLimitingFactory(factory, settings);
+			connectionLimitingFactory.flinkConfig = config;
+			return connectionLimitingFactory;
 		}
 	}
 }

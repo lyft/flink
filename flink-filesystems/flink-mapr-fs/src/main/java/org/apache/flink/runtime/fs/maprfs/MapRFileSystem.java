@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.fs.maprfs;
 
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FileSystemKind;
 import org.apache.flink.runtime.fs.hdfs.HadoopFileSystem;
 
@@ -63,8 +64,8 @@ public class MapRFileSystem extends HadoopFileSystem {
 	 * @param fsUri The URI describing the file system
 	 * @throws IOException Thrown if the file system could not be initialized.
 	 */
-	public MapRFileSystem(URI fsUri) throws IOException {
-		super(instantiateMapRFileSystem(fsUri));
+	public MapRFileSystem(URI fsUri, Configuration flinkConfig) throws IOException {
+		super(instantiateMapRFileSystem(fsUri), flinkConfig);
 	}
 
 	private static org.apache.hadoop.fs.FileSystem instantiateMapRFileSystem(URI fsUri) throws IOException {

@@ -48,7 +48,7 @@ public class HadoopFsFactory implements FileSystemFactory {
 	private static final Logger LOG = LoggerFactory.getLogger(HadoopFsFactory.class);
 
 	/** Flink's configuration object. */
-	private Configuration flinkConfig;
+	protected Configuration flinkConfig;
 
 	/** Hadoop's configuration for the file systems. */
 	private org.apache.hadoop.conf.Configuration hadoopConfig;
@@ -165,7 +165,7 @@ public class HadoopFsFactory implements FileSystemFactory {
 				throw new IOException(message, e);
 			}
 
-			HadoopFileSystem fs = new HadoopFileSystem(hadoopFs);
+			HadoopFileSystem fs = new HadoopFileSystem(hadoopFs, flinkConfig);
 
 			// create the Flink file system, optionally limiting the open connections
 			if (flinkConfig != null) {
@@ -209,7 +209,8 @@ public class HadoopFsFactory implements FileSystemFactory {
 					limitSettings.limitOutput,
 					limitSettings.limitInput,
 					limitSettings.streamOpenTimeout,
-					limitSettings.streamInactivityTimeout);
+					limitSettings.streamInactivityTimeout,
+					config);
 		}
 	}
 }

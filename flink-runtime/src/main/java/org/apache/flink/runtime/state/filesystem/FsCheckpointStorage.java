@@ -49,6 +49,20 @@ public class FsCheckpointStorage extends AbstractFsCheckpointStorage {
 	private final int fileSizeThreshold;
 
 	public FsCheckpointStorage(
+		Path checkpointBaseDirectory,
+		@Nullable Path defaultSavepointDirectory,
+		JobID jobId,
+		int fileSizeThreshold) throws IOException {
+
+		this(checkpointBaseDirectory.getFileSystem(),
+			checkpointBaseDirectory,
+			defaultSavepointDirectory,
+			jobId,
+			fileSizeThreshold);
+	}
+
+	public FsCheckpointStorage(
+			FileSystem fs,
 			Path checkpointBaseDirectory,
 			@Nullable Path defaultSavepointDirectory,
 			JobID jobId,
@@ -58,7 +72,7 @@ public class FsCheckpointStorage extends AbstractFsCheckpointStorage {
 
 		checkArgument(fileSizeThreshold >= 0);
 
-		this.fileSystem = checkpointBaseDirectory.getFileSystem();
+		this.fileSystem = fs;
 		this.checkpointsDirectory = getCheckpointDirectoryForJob(checkpointBaseDirectory, jobId);
 		this.sharedStateDirectory = new Path(checkpointsDirectory, CHECKPOINT_SHARED_STATE_DIR);
 		this.taskOwnedStateDirectory = new Path(checkpointsDirectory, CHECKPOINT_TASK_OWNED_STATE_DIR);
