@@ -24,7 +24,7 @@ import org.apache.flink.streaming.api.functions.AssignerWithPeriodicWatermarks;
 import org.apache.flink.streaming.api.functions.AssignerWithPunctuatedWatermarks;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.connectors.kafka.config.OffsetCommitMode;
-import org.apache.flink.streaming.connectors.kafka.config.RateLimitingConfig;
+import org.apache.flink.streaming.connectors.kafka.config.RateLimiterFactory;
 import org.apache.flink.streaming.connectors.kafka.internal.Kafka010Fetcher;
 import org.apache.flink.streaming.connectors.kafka.internal.Kafka010PartitionDiscoverer;
 import org.apache.flink.streaming.connectors.kafka.internals.AbstractFetcher;
@@ -199,7 +199,8 @@ public class FlinkKafkaConsumer010<T> extends FlinkKafkaConsumer09<T> {
 			properties.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 		}
 
-		RateLimitingConfig.setLocalMaxBytesPerSecond(runtimeContext, this.properties, CONSUMER_PREFIX);
+		RateLimiterFactory rateLimiterFactory = new RateLimiterFactory();
+		rateLimiterFactory.configure(CONSUMER_PREFIX, runtimeContext, properties);
 
 		return new Kafka010Fetcher<>(
 				sourceContext,
@@ -215,7 +216,8 @@ public class FlinkKafkaConsumer010<T> extends FlinkKafkaConsumer09<T> {
 				pollTimeout,
 				runtimeContext.getMetricGroup(),
 				consumerMetricGroup,
-				useMetrics);
+				useMetrics,
+				rateLimiterFactory);
 	}
 
 	@Override
