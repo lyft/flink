@@ -69,15 +69,6 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 @Internal
 public class KafkaConsumerThread extends Thread {
 
-	/** Consumer prefix for Ratelimiting. **/
-	private static final String CONSUMER_PREFIX = "kafka";
-
-	/** Default value for the rate-limiting flag. **/
-	private static final boolean DEFAULT_USE_RATELIMITING = false;
-
-	/** Default value for max bytes per second per consumer. **/
-	private static final long DEFAULT_BYTES_PER_SECOND_MAX = 1 * 1024 * 1024L;
-
 	/** Logger for this consumer. */
 	private final Logger log;
 
@@ -543,7 +534,7 @@ public class KafkaConsumerThread extends Thread {
 	 * @return ConsumerRecords
 	 */
 	@VisibleForTesting
-	ConsumerRecords<byte[], byte[]> getRecordsFromKafka() {
+	protected ConsumerRecords<byte[], byte[]> getRecordsFromKafka() {
 		ConsumerRecords<byte[], byte[]> records = consumer.poll(pollTimeout);
 		if (useRateLimiting) {
 			int bytesRead = getRecordBatchSize(records);
