@@ -18,7 +18,7 @@
 
 package org.apache.flink.formats.parquet;
 
-import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.core.fs.FSDataOutputStream;
 
 import org.apache.parquet.io.OutputFile;
@@ -35,8 +35,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * <p>Because the implementation goes against an open stream, rather than open its
  * own streams against a file, instances can create one stream only.
  */
-@Internal
-class StreamOutputFile implements OutputFile {
+@PublicEvolving
+public class StreamOutputFile implements OutputFile {
 
 	private static final long DEFAULT_BLOCK_SIZE = 64L * 1024L * 1024L;
 
@@ -50,7 +50,7 @@ class StreamOutputFile implements OutputFile {
 	 *
 	 * @param stream The stream to write to.
 	 */
-	StreamOutputFile(FSDataOutputStream stream) {
+	public StreamOutputFile(FSDataOutputStream stream) {
 		this.stream = checkNotNull(stream);
 		this.used = new AtomicBoolean(false);
 	}
