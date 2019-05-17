@@ -110,7 +110,7 @@ public class Bucket<IN, BucketID> {
 		this.pendingPartsForCurrentCheckpoint = new ArrayList<>();
 		this.pendingPartsPerCheckpoint = new TreeMap<>();
 		this.resumablesPerCheckpoint = new TreeMap<>();
-		this.partFileCount = this.metricsGroup.counter(bucketId.toString());
+		this.partFileCount = this.metricsGroup.counter("bucketId");
 	}
 
 	/**
