@@ -18,6 +18,9 @@
 
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
+import com.codahale.metrics.Counter;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.SharedMetricRegistries;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.core.fs.Path;
@@ -62,6 +65,10 @@ public class Bucket<IN, BucketID> {
 
 	private final int subtaskIndex;
 
+	private final MetricRegistry metricsGroup;
+
+	private final Counter partFileCount;
+
 	private final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory;
 
 	private final RecoverableWriter fsWriter;
@@ -91,6 +98,7 @@ public class Bucket<IN, BucketID> {
 			final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory,
 			final RollingPolicy<IN, BucketID> rollingPolicy) {
 
+		this.metricsGroup = SharedMetricRegistries.getOrCreate("default");
 		this.fsWriter = checkNotNull(fsWriter);
 		this.subtaskIndex = subtaskIndex;
 		this.bucketId = checkNotNull(bucketId);
@@ -102,6 +110,7 @@ public class Bucket<IN, BucketID> {
 		this.pendingPartsForCurrentCheckpoint = new ArrayList<>();
 		this.pendingPartsPerCheckpoint = new TreeMap<>();
 		this.resumablesPerCheckpoint = new TreeMap<>();
+		this.partFileCount = this.metricsGroup.counter(bucketId.toString());
 	}
 
 	/**
@@ -298,6 +307,7 @@ public class Bucket<IN, BucketID> {
 
 			for (CommitRecoverable committable : entry.getValue()) {
 				fsWriter.recoverForCommit(committable).commit();
+				partFileCount.inc();
 			}
 			it.remove();
 		}
