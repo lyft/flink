@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableWriter;
 
@@ -27,8 +28,8 @@ import java.io.IOException;
 /**
  * A factory returning {@link Bucket buckets}.
  */
-@Internal
-class DefaultBucketFactoryImpl<IN, BucketID> implements BucketFactory<IN, BucketID> {
+@PublicEvolving
+public class DefaultBucketFactoryImpl<IN, BucketID> implements BucketFactory<IN, BucketID> {
 
 	private static final long serialVersionUID = 1L;
 

@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableWriter;
 
@@ -28,8 +29,8 @@ import java.io.Serializable;
 /**
  * A factory able to create {@link Bucket buckets} for the {@link StreamingFileSink}.
  */
-@Internal
-interface BucketFactory<IN, BucketID> extends Serializable {
+@PublicEvolving
+public interface BucketFactory<IN, BucketID> extends Serializable {
 
 	Bucket<IN, BucketID> getNewBucket(
 			final RecoverableWriter fsWriter,

@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.core.fs.FileSystem;
@@ -48,7 +49,7 @@ import java.util.Map;
  * @param <IN> The type of input elements.
  * @param <BucketID> The type of ids for the buckets, as returned by the {@link BucketAssigner}.
  */
-@Internal
+@PublicEvolving
 public class Buckets<IN, BucketID> {
 
 	private static final Logger LOG = LoggerFactory.getLogger(Buckets.class);
@@ -90,7 +91,7 @@ public class Buckets<IN, BucketID> {
 	 * @param partFileWriterFactory The {@link PartFileWriter.PartFileFactory} to be used when writing data.
 	 * @param rollingPolicy The {@link RollingPolicy} as specified by the user.
 	 */
-	Buckets(
+	public Buckets(
 			final Path basePath,
 			final BucketAssigner<IN, BucketID> bucketAssigner,
 			final BucketFactory<IN, BucketID> bucketFactory,
