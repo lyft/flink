@@ -262,21 +262,22 @@ public class StreamingFileSink<IN>
 
 		private static final long serialVersionUID = 1L;
 
-		private final long bucketCheckInterval;
+		protected final long bucketCheckInterval;
 
-		private final Path basePath;
+		protected final Path basePath;
 
-		private final BulkWriter.Factory<IN> writerFactory;
+		protected final BulkWriter.Factory<IN> writerFactory;
 
-		private final BucketAssigner<IN, BucketID> bucketAssigner;
+		protected final BucketAssigner<IN, BucketID> bucketAssigner;
 
-		private final BucketFactory<IN, BucketID> bucketFactory;
+		protected final BucketFactory<IN, BucketID> bucketFactory;
 
-		BulkFormatBuilder(Path basePath, BulkWriter.Factory<IN> writerFactory, BucketAssigner<IN, BucketID> assigner) {
+		public BulkFormatBuilder(Path basePath, BulkWriter.Factory<IN> writerFactory,
+						   BucketAssigner<IN, BucketID> assigner) {
 			this(basePath, writerFactory, assigner, 60L * 1000L, new DefaultBucketFactoryImpl<>());
 		}
 
-		private BulkFormatBuilder(
+		protected BulkFormatBuilder(
 				Path basePath,
 				BulkWriter.Factory<IN> writerFactory,
 				BucketAssigner<IN, BucketID> assigner,

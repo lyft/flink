@@ -19,6 +19,7 @@
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.serialization.BulkWriter;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableFsDataOutputStream;
@@ -31,8 +32,8 @@ import java.io.IOException;
  * A {@link PartFileWriter} for bulk-encoding formats that use an {@link BulkPartWriter}.
  * This also implements the {@link PartFileInfo}.
  */
-@Internal
-final class BulkPartWriter<IN, BucketID> extends PartFileWriter<IN, BucketID> {
+@PublicEvolving
+final public class BulkPartWriter<IN, BucketID> extends PartFileWriter<IN, BucketID> {
 
 	private final BulkWriter<IN> writer;
 
@@ -68,11 +69,12 @@ final class BulkPartWriter<IN, BucketID> extends PartFileWriter<IN, BucketID> {
 	 * @param <IN> The type of input elements.
 	 * @param <BucketID> The type of ids for the buckets, as returned by the {@link BucketAssigner}.
 	 */
-	static class Factory<IN, BucketID> implements PartFileWriter.PartFileFactory<IN, BucketID> {
+	static public class Factory<IN, BucketID> implements PartFileWriter.PartFileFactory<IN,
+		BucketID> {
 
 		private final BulkWriter.Factory<IN> writerFactory;
 
-		Factory(BulkWriter.Factory<IN> writerFactory) {
+		public Factory(BulkWriter.Factory<IN> writerFactory) {
 			this.writerFactory = writerFactory;
 		}
 
