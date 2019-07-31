@@ -53,6 +53,16 @@ public class ClosureCleaner {
 	private static final Logger LOG = LoggerFactory.getLogger(ClosureCleaner.class);
 
 	/**
+	 * LYFT TEMPORARY: Added back to allow for transition from 1.8.0 to 1.8.1.
+	 * Once all dependencies were updated to 1.8.1, this can be dropped.
+	 * @param func
+	 * @param checkSerializable
+	 */
+	public static void clean(Object func, boolean checkSerializable) {
+		clean(func, ExecutionConfig.ClosureCleanerLevel.TOP_LEVEL, checkSerializable);
+	}
+
+	/**
 	 * Tries to clean the closure of the given object, if the object is a non-static inner
 	 * class.
 	 *
