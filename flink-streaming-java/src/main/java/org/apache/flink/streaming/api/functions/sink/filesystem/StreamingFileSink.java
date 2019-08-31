@@ -290,12 +290,12 @@ public class StreamingFileSink<IN>
 
 		private BucketFactory<IN, BucketID> bucketFactory;
 
-		public BulkFormatBuilder(Path basePath, BulkWriter.Factory<IN> writerFactory,
+		protected BulkFormatBuilder(Path basePath, BulkWriter.Factory<IN> writerFactory,
 						   BucketAssigner<IN, BucketID> assigner) {
 			this(basePath, writerFactory, assigner, DEFAULT_BUCKET_CHECK_INTERVAL, new DefaultBucketFactoryImpl<>());
 		}
 
-		protected BulkFormatBuilder(
+		private BulkFormatBuilder(
 				Path basePath,
 				BulkWriter.Factory<IN> writerFactory,
 				BucketAssigner<IN, BucketID> assigner,
