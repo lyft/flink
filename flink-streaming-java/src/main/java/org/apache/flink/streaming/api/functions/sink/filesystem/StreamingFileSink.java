@@ -295,7 +295,7 @@ public class StreamingFileSink<IN>
 			this(basePath, writerFactory, assigner, DEFAULT_BUCKET_CHECK_INTERVAL, new DefaultBucketFactoryImpl<>());
 		}
 
-		private BulkFormatBuilder(
+		protected BulkFormatBuilder(
 				Path basePath,
 				BulkWriter.Factory<IN> writerFactory,
 				BucketAssigner<IN, BucketID> assigner,
