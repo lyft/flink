@@ -241,10 +241,9 @@ public class StreamingFileSink<IN>
 			return self();
 		}
 
-		public T withBucketAssignerAndPolicy(final BucketAssigner<IN, BucketID> assigner, final RollingPolicy<IN,
-			BucketID> policy) {
-			this.bucketAssigner = Preconditions.checkNotNull(assigner);
-			this.rollingPolicy = Preconditions.checkNotNull(policy);
+		public <ID> T withBucketAssignerAndPolicy(final BucketAssigner<IN, ID> assigner, final RollingPolicy<IN, ID> policy) {
+			this.bucketAssigner = (BucketAssigner) Preconditions.checkNotNull(assigner);
+			this.rollingPolicy = (RollingPolicy) Preconditions.checkNotNull(policy);
 			return self();
 		}
 
@@ -313,8 +312,8 @@ public class StreamingFileSink<IN>
 			return self();
 		}
 
-		public T withBucketAssigner(BucketAssigner<IN, BucketID> assigner) {
-			this.bucketAssigner = Preconditions.checkNotNull(assigner);
+		public <ID> T withBucketAssigner(BucketAssigner<IN, ID> assigner) {
+			this.bucketAssigner = (BucketAssigner) Preconditions.checkNotNull(assigner);
 			return self();
 		}
 
