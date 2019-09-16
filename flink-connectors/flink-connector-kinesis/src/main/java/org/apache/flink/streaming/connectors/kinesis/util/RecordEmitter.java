@@ -172,9 +172,10 @@ public abstract class RecordEmitter<T extends TimestampedValue> implements Runna
 	 */
 	@Override
 	public void run() {
-		LOG.warn("Patched record emitter");
+		LOG.warn("Patched record emitter 3");
 		LOG.info("Starting emitter with maxLookaheadMillis: {}", this.maxLookaheadMillis);
 
+		long millis = System.currentTimeMillis();
 		// emit available records, ordered by timestamp
 		AsyncRecordQueue<T> min = heads.poll();
 		runLoop:
@@ -204,19 +205,18 @@ public abstract class RecordEmitter<T extends TimestampedValue> implements Runna
 				}
 			}
 
-			long millis = System.currentTimeMillis();
 			// wait until ready to emit min or another queue receives elements
 			while (min.headTimestamp > maxEmitTimestamp) {
+				if (System.currentTimeMillis() > millis + 60000) {
+					millis = System.currentTimeMillis();
+					LOG.info("min: {} heads: {}", min.headTimestamp, heads);
+				}
 				synchronized (condition) {
 					// wait until ready to emit
 					try {
 						condition.wait(idleSleepMillis);
 					} catch (InterruptedException e) {
 						continue runLoop;
-					}
-					if (System.currentTimeMillis() > millis + 60000) {
-						millis += 60000;
-						LOG.info("min: {} heads.peek: {} heads: {}", min.headTimestamp, heads.peek().headTimestamp, heads);
 					}
 					if (min.headTimestamp > maxEmitTimestamp && !emptyQueues.isEmpty()) {
 						// see if another queue can make progress
