@@ -172,7 +172,7 @@ public abstract class RecordEmitter<T extends TimestampedValue> implements Runna
 	 */
 	@Override
 	public void run() {
-		LOG.warn("Patched record emitter 4");
+		LOG.warn("Patched record emitter 5");
 		LOG.info("Starting emitter with maxLookaheadMillis: {}", this.maxLookaheadMillis);
 
 		long millis = System.currentTimeMillis();
@@ -247,13 +247,14 @@ public abstract class RecordEmitter<T extends TimestampedValue> implements Runna
 				this.emptyQueues.put(min, true);
 			} else {
 				heads.offer(min);
-			}
-			if (nextQueue != null && nextQueue.headTimestamp > min.headTimestamp) {
-				LOG.warn("Unexpected next element timestamp {} min: {}",
-					nextQueue.headTimestamp, min.headTimestamp);
+				if (nextQueue != null && nextQueue.headTimestamp > min.headTimestamp) {
+					LOG.warn("Unexpected next element timestamp {} min: {}",
+						nextQueue.headTimestamp, min.headTimestamp);
+					heads.offer(nextQueue);
+					nextQueue = null;
+				}
 			}
 			min = nextQueue;
-			//min = heads.poll();
 		}
 	}
 
