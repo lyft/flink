@@ -247,9 +247,9 @@ public abstract class RecordEmitter<T extends TimestampedValue> implements Runna
 				this.emptyQueues.put(min, true);
 			} else {
 				heads.offer(min);
+				// if we stopped emitting due to reaching max timestamp,
+				// the next queue may not be the new min
 				if (nextQueue != null && nextQueue.headTimestamp > min.headTimestamp) {
-					LOG.warn("Unexpected next element timestamp {} min: {}",
-						nextQueue.headTimestamp, min.headTimestamp);
 					heads.offer(nextQueue);
 					nextQueue = null;
 				}
