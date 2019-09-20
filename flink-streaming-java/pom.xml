@@ -25,12 +25,11 @@ under the License.
 	<parent>
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-parent</artifactId>
-		<version>1.8-lyft20190407</version>
+		<version>1.8-lyft-zippy-SNAPSHOT</version>
 		<relativePath>..</relativePath>
 	</parent>
 
-	<artifactId>flink-streaming-java_2.11</artifactId>
-	<version>1.8-lyft20190531-zippy</version>
+	<artifactId>flink-streaming-java_${scala.binary.version}</artifactId>
 	<name>flink-streaming-java</name>
 
 	<packaging>jar</packaging>
