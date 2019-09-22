@@ -18,7 +18,7 @@
 
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
-import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableWriter;
 import org.apache.flink.util.Preconditions;
@@ -31,8 +31,8 @@ import java.util.Map;
 /**
  * The state of the {@link Bucket} that is to be checkpointed.
  */
-@Internal
-class BucketState<BucketID> {
+@PublicEvolving
+public class BucketState<BucketID> {
 
 	private final BucketID bucketId;
 
@@ -58,7 +58,7 @@ class BucketState<BucketID> {
 	 */
 	private final Map<Long, List<RecoverableWriter.CommitRecoverable>> committableFilesPerCheckpoint;
 
-	BucketState(
+	public BucketState(
 			final BucketID bucketId,
 			final Path bucketPath,
 			final long inProgressFileCreationTime,
@@ -72,7 +72,7 @@ class BucketState<BucketID> {
 		this.committableFilesPerCheckpoint = Preconditions.checkNotNull(pendingCommittablesPerCheckpoint);
 	}
 
-	BucketID getBucketId() {
+	public BucketID getBucketId() {
 		return bucketId;
 	}
 

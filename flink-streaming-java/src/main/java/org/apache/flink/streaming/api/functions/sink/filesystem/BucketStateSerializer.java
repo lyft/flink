@@ -18,7 +18,7 @@
 
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
-import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.fs.RecoverableWriter;
@@ -40,8 +40,8 @@ import java.util.Map.Entry;
 /**
  * A {@code SimpleVersionedSerializer} used to serialize the {@link BucketState BucketState}.
  */
-@Internal
-class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<BucketState<BucketID>> {
+@PublicEvolving
+public class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<BucketState<BucketID>> {
 
 	private static final int MAGIC_NUMBER = 0x1e764b79;
 
@@ -51,7 +51,7 @@ class BucketStateSerializer<BucketID> implements SimpleVersionedSerializer<Bucke
 
 	private final SimpleVersionedSerializer<BucketID> bucketIdSerializer;
 
-	BucketStateSerializer(
+	public BucketStateSerializer(
 			final SimpleVersionedSerializer<RecoverableWriter.ResumeRecoverable> resumableSerializer,
 			final SimpleVersionedSerializer<RecoverableWriter.CommitRecoverable> commitableSerializer,
 			final SimpleVersionedSerializer<BucketID> bucketIdSerializer
