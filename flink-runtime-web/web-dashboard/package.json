@@ -31,6 +31,12 @@
     "path": "^0.11.14"
   },
   "dependencies": {
-    "hapi": "^8.4.0"
-  }
+    "hapi": "^13.4.0",
+    "snyk": "^1.244.0"
+  },
+  "scripts": {
+    "snyk-protect": "snyk protect",
+    "prepublish": "npm run snyk-protect"
+  },
+  "snyk": true
 }

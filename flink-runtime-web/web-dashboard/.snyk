@@ -1,0 +1,22 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.13.5
+ignore: {}
+# patches apply the minimum changes required to fix a vulnerability
+patch:
+  'npm:hoek:20180212':
+    - hapi > subtext > pez > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > content > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > pez > boom > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > pez > content > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > pez > b64 > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > pez > nigel > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > pez > nigel > vise > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
+    - hapi > subtext > pez > content > boom > hoek:
+        patched: '2019-11-08T04:07:44.563Z'
