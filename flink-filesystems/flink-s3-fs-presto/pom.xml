@@ -34,7 +34,7 @@ under the License.
 
 	<properties>
 		<!-- Do not change this without updating the copied Configuration class from the included Hadoop! -->
-		<presto.version>0.185</presto.version>
+		<presto.version>0.229</presto.version>
 	</properties>
 
 	<dependencies>
