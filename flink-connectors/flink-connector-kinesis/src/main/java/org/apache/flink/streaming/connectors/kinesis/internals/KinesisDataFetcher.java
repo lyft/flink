@@ -273,6 +273,11 @@ public class KinesisDataFetcher<T> {
 			ShardWatermarkState<T> sws = shardWatermarks.get(queue.getQueueId());
 			sws.lastEmittedRecordWatermark = record.watermark;
 		}
+
+		@Override
+		public void reportError(Throwable throwable) {
+			stopWithError(throwable);
+		}
 	}
 
 	/** Synchronous emitter for use w/o watermark synchronization. */

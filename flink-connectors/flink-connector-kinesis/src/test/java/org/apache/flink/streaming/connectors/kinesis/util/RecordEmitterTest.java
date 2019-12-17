@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Test for {@link RecordEmitter}. */
 public class RecordEmitterTest {
@@ -132,4 +133,53 @@ public class RecordEmitterTest {
 			executor.shutdownNow();
 		}
 	}
+
+	private class ExceptionThrowingRecordEmitter extends RecordEmitter<TimestampedValue> {
+
+		private AtomicReference<Throwable> reportedError = new AtomicReference<>();
+		private RuntimeException error = new RuntimeException("emit");
+
+		private ExceptionThrowingRecordEmitter() {
+			super(DEFAULT_QUEUE_CAPACITY);
+		}
+
+		@Override
+		public void emit(TimestampedValue record, RecordQueue<TimestampedValue> queue) {
+			throw error;
+		}
+
+		@Override
+		public void reportError(Throwable throwable) {
+			reportedError.set(throwable);
+		}
+	}
+
+	@Test
+	public void testException() throws Exception {
+
+		ExceptionThrowingRecordEmitter emitter = new ExceptionThrowingRecordEmitter();
+
+		final TimestampedValue<String> one = new TimestampedValue<>("1", 1);
+
+		final RecordEmitter.RecordQueue<TimestampedValue> queue0 = emitter.getQueue(0);
+
+		emitter.setMaxLookaheadMillis(1);
+		emitter.setCurrentWatermark(5);
+
+		ExecutorService executor = Executors.newSingleThreadExecutor();
+		executor.submit(emitter);
+		try {
+			queue0.put(one);
+			Deadline dl = Deadline.fromNow(Duration.ofSeconds(10));
+			while (dl.hasTimeLeft() && emitter.reportedError.get() == null) {
+				Thread.sleep(10);
+			}
+			Assert.assertEquals(emitter.error, emitter.reportedError.get());
+		}
+		finally {
+			emitter.stop();
+			executor.shutdownNow();
+		}
+	}
+
 }

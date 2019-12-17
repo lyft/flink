@@ -23,6 +23,7 @@ import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.OperatorStateStore;
+import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.runtime.PojoSerializer;
@@ -72,6 +73,8 @@ import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
+import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -81,6 +84,7 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -906,6 +910,7 @@ public class FlinkKinesisConsumerTest {
 		testHarness.open();
 
 		final ConcurrentLinkedQueue<Object> results = testHarness.getOutput();
+		final AtomicBoolean throwOnCollect = new AtomicBoolean();
 
 		@SuppressWarnings("unchecked")
 		SourceFunction.SourceContext<String> sourceContext = new CollectingSourceContext(
@@ -915,11 +920,20 @@ public class FlinkKinesisConsumerTest {
 			}
 
 			@Override
+			public void collect(Serializable element) {
+				if (throwOnCollect.get()) {
+					throw new RuntimeException("expected");
+				}
+				super.collect(element);
+			}
+
+			@Override
 			public void emitWatermark(Watermark mark) {
 				results.add(mark);
 			}
 		};
 
+		final AtomicReference<Exception> sourceThreadError = new AtomicReference<>();
 		new Thread(
 			() -> {
 				try {
@@ -927,7 +941,7 @@ public class FlinkKinesisConsumerTest {
 				} catch (InterruptedException e) {
 					// expected on cancel
 				} catch (Exception e) {
-					throw new RuntimeException(e);
+					sourceThreadError.set(e);
 				}
 			})
 			.start();
@@ -978,6 +992,18 @@ public class FlinkKinesisConsumerTest {
 		testHarness.setProcessingTime(testHarness.getProcessingTime() + autoWatermarkInterval);
 		expectedResults.add(new Watermark(3000));
 		assertThat(results, org.hamcrest.Matchers.contains(expectedResults.toArray()));
+
+		// verify exception propagation
+		throwOnCollect.set(true);
+		shard1.put(Long.toString(record2 + 1));
+
+		Assert.assertNull(sourceThreadError.get());
+		Deadline deadline  = Deadline.fromNow(Duration.ofSeconds(10));
+		while (deadline.hasTimeLeft() && sourceThreadError.get() == null) {
+			Thread.sleep(10);
+		}
+		Assert.assertNotNull(sourceThreadError.get());
+		Assert.assertNotNull("expected", sourceThreadError.get().getMessage());
 
 		sourceFunc.cancel();
 		testHarness.close();
