@@ -37,6 +37,7 @@ import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.sink.filesystem.bucketassigners.DateTimeBucketAssigner;
+import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.CheckpointRollingPolicy;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.DefaultRollingPolicy;
 import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.OnCheckpointRollingPolicy;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
@@ -71,7 +72,7 @@ import java.io.Serializable;
  * and a rolling counter. For example the file {@code "part-1-17"} contains the data from
  * {@code subtask 1} of the sink and is the {@code 17th} bucket created by that subtask.
  * Part files roll based on the user-specified {@link RollingPolicy}. By default, a {@link DefaultRollingPolicy}
- * is used.
+ * is used for row-encoded sink output; a {@link OnCheckpointRollingPolicy} is used for bulk-encoded sink output.
  *
  * <p>In some scenarios, the open buckets are required to change based on time. In these cases, the user
  * can specify a {@code bucketCheckInterval} (by default 1m) and the sink will check periodically and roll
@@ -299,21 +300,26 @@ public class StreamingFileSink<IN>
 
 		private BucketAssigner<IN, BucketID> bucketAssigner;
 
+		private CheckpointRollingPolicy<IN, BucketID> rollingPolicy;
+
 		private BucketFactory<IN, BucketID> bucketFactory;
 
 		protected BulkFormatBuilder(Path basePath, BulkWriter.Factory<IN> writerFactory, BucketAssigner<IN, BucketID> assigner) {
-			this(basePath, writerFactory, assigner, DEFAULT_BUCKET_CHECK_INTERVAL, new DefaultBucketFactoryImpl<>());
+			this(basePath, writerFactory, assigner, OnCheckpointRollingPolicy.build(), DEFAULT_BUCKET_CHECK_INTERVAL,
+				new DefaultBucketFactoryImpl<>());
 		}
 
 		private BulkFormatBuilder(
 				Path basePath,
 				BulkWriter.Factory<IN> writerFactory,
 				BucketAssigner<IN, BucketID> assigner,
+				CheckpointRollingPolicy<IN, BucketID> policy,
 				long bucketCheckInterval,
 				BucketFactory<IN, BucketID> bucketFactory) {
 			this.basePath = Preconditions.checkNotNull(basePath);
 			this.writerFactory = writerFactory;
 			this.bucketAssigner = Preconditions.checkNotNull(assigner);
+			this.rollingPolicy = Preconditions.checkNotNull(policy);
 			this.bucketCheckInterval = bucketCheckInterval;
 			this.bucketFactory = Preconditions.checkNotNull(bucketFactory);
 		}
@@ -332,6 +338,11 @@ public class StreamingFileSink<IN>
 			return self();
 		}
 
+		public T withRollingPolicy(CheckpointRollingPolicy<IN, BucketID> rollingPolicy) {
+			this.rollingPolicy = Preconditions.checkNotNull(rollingPolicy);
+			return self();
+		}
+
 		@VisibleForTesting
 		T withBucketFactory(final BucketFactory<IN, BucketID> factory) {
 			this.bucketFactory = Preconditions.checkNotNull(factory);
@@ -340,7 +351,8 @@ public class StreamingFileSink<IN>
 
 		public <ID> StreamingFileSink.BulkFormatBuilder<IN, ID, ? extends BulkFormatBuilder<IN, ID, ?>> withNewBucketAssigner(final BucketAssigner<IN, ID> assigner) {
 			Preconditions.checkState(bucketFactory.getClass() == DefaultBucketFactoryImpl.class, "newBuilderWithBucketAssigner() cannot be called after specifying a customized bucket factory");
-			return new BulkFormatBuilder<>(basePath, writerFactory, Preconditions.checkNotNull(assigner), bucketCheckInterval, new DefaultBucketFactoryImpl<>());
+			return new BulkFormatBuilder(basePath, writerFactory, Preconditions.checkNotNull(assigner),
+				rollingPolicy, bucketCheckInterval, new DefaultBucketFactoryImpl<>());
 		}
 
 		/** Creates the actual sink. */
@@ -355,7 +367,7 @@ public class StreamingFileSink<IN>
 					bucketAssigner,
 					bucketFactory,
 					new BulkPartWriter.Factory<>(writerFactory),
-					OnCheckpointRollingPolicy.build(),
+					rollingPolicy,
 					subtaskIndex);
 		}
 	}
