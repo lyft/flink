@@ -1047,7 +1047,7 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 								try {
 									LOG.error("FATAL! Watchdog thread failed to start.", t);
 								} catch (Throwable ignored) {}
-								System.exit(42);
+								Runtime.getRuntime().halt(42);
 							}
 						}
 
