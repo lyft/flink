@@ -77,7 +77,7 @@ public class DefaultQuarantineHandler implements QuarantineHandler {
 			log.error("Exception thrown when terminating the actor system", e);
 		} finally {
 			// now let's crash the JVM
-			System.exit(exitCode);
+			Runtime.getRuntime().halt(exitCode);
 		}
 	}
 }
