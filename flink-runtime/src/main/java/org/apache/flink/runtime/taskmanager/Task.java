@@ -258,13 +258,10 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 	private volatile ExecutorService asyncCallDispatcher;
 
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
-	private long taskCancellationInterval;
+	private volatile long taskCancellationInterval;
 
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
 	private volatile long taskCancellationTimeout;
-
-	/** Daemon thread which may be started after task cancelation to kill the taskmanager if the task won't stop. */
-	private volatile Thread watchDogThread;
 
 	/**
 	 * This class loader should be set as the context class loader of the threads in
@@ -599,22 +596,6 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 			if (executionConfig.getTaskCancellationTimeout() >= 0) {
 				// override task cancellation timeout from Flink config if set in ExecutionConfig
 				taskCancellationTimeout = executionConfig.getTaskCancellationTimeout();
-			}
-
-			if (taskCancellationTimeout > 0) {
-				// Create watchdog thread but don't start it yet.
-				Runnable cancelWatchdog = new TaskCancelerWatchDog(
-					executingThread,
-					taskManagerActions,
-					taskCancellationTimeout,
-					LOG);
-				watchDogThread = new Thread(
-					executingThread.getThreadGroup(),
-					cancelWatchdog,
-					String.format("Cancellation Watchdog for %s (%s).",
-						taskNameWithSubtask, executionId));
-				watchDogThread.setDaemon(true);
-				watchDogThread.setUncaughtExceptionHandler(FatalExitExceptionHandler.INSTANCE);
 			}
 
 			if (isCanceledOrFailed()) {
@@ -988,7 +969,15 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 	 */
 	public void cancelExecution() {
 		LOG.info("Attempting to cancel task {} ({}).", taskNameWithSubtask, executionId);
-		cancelOrFailAndCancelInvokable(ExecutionState.CANCELING, null);
+		try {
+			cancelOrFailAndCancelInvokable(ExecutionState.CANCELING, null);
+		} catch (Throwable t) {
+			try {
+				LOG.error("FATAL error for cancelExecution(). Force shutting down the JVM.", t);
+			} finally {
+				Runtime.getRuntime().halt(42);
+			}
+		}
 	}
 
 	/**
@@ -1003,7 +992,15 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 	@Override
 	public void failExternally(Throwable cause) {
 		LOG.info("Attempting to fail task externally {} ({}).", taskNameWithSubtask, executionId);
-		cancelOrFailAndCancelInvokable(ExecutionState.FAILED, cause);
+		try {
+			cancelOrFailAndCancelInvokable(ExecutionState.FAILED, cause);
+		} catch (Throwable t) {
+			try {
+				LOG.error("FATAL error for failExternally(). Force shutting down the JVM.", t);
+			} finally {
+				Runtime.getRuntime().halt(42);
+			}
+		}
 	}
 
 	private void cancelOrFailAndCancelInvokable(ExecutionState targetState, Throwable cause) {
@@ -1037,19 +1034,6 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 						this.failureCause = cause;
 
 						LOG.info("Triggering cancellation of task code {} ({}).", taskNameWithSubtask, executionId);
-
-						// if a cancellation timeout is set, the watchdog thread kills the process
-						// if graceful cancellation does not succeed
-						if (watchDogThread != null) {
-							try {
-								watchDogThread.start();
-							} catch (Throwable t) {
-								try {
-									LOG.error("FATAL! Watchdog thread failed to start.", t);
-								} catch (Throwable ignored) {}
-								Runtime.getRuntime().halt(42);
-							}
-						}
 
 						// because the canceling may block on user code, we cancel from a separate thread
 						// we do not reuse the async call handler, because that one may be blocked, in which
@@ -1089,6 +1073,25 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 							interruptingThread.setDaemon(true);
 							interruptingThread.setUncaughtExceptionHandler(FatalExitExceptionHandler.INSTANCE);
 							interruptingThread.start();
+						}
+
+						// if a cancellation timeout is set, the watchdog thread kills the process
+						// if graceful cancellation does not succeed
+						if (taskCancellationTimeout > 0) {
+							Runnable cancelWatchdog = new TaskCancelerWatchDog(
+									executingThread,
+									taskManagerActions,
+									taskCancellationTimeout,
+									LOG);
+
+							Thread watchDogThread = new Thread(
+									executingThread.getThreadGroup(),
+									cancelWatchdog,
+									String.format("Cancellation Watchdog for %s (%s).",
+											taskNameWithSubtask, executionId));
+							watchDogThread.setDaemon(true);
+							watchDogThread.setUncaughtExceptionHandler(FatalExitExceptionHandler.INSTANCE);
+							watchDogThread.start();
 						}
 					}
 					return;
