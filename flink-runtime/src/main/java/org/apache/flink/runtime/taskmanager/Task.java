@@ -258,10 +258,10 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 	private volatile ExecutorService asyncCallDispatcher;
 
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
-	private long taskCancellationInterval;
+	private volatile long taskCancellationInterval;
 
 	/** Initialized from the Flink configuration. May also be set at the ExecutionConfig */
-	private long taskCancellationTimeout;
+	private volatile long taskCancellationTimeout;
 
 	/**
 	 * This class loader should be set as the context class loader of the threads in
@@ -969,7 +969,15 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 	 */
 	public void cancelExecution() {
 		LOG.info("Attempting to cancel task {} ({}).", taskNameWithSubtask, executionId);
-		cancelOrFailAndCancelInvokable(ExecutionState.CANCELING, null);
+		try {
+			cancelOrFailAndCancelInvokable(ExecutionState.CANCELING, null);
+		} catch (Throwable t) {
+			try {
+				LOG.error("FATAL error for cancelExecution(). Force shutting down the JVM.", t);
+			} finally {
+				Runtime.getRuntime().halt(42);
+			}
+		}
 	}
 
 	/**
@@ -984,7 +992,15 @@ public class Task implements Runnable, TaskActions, CheckpointListener {
 	@Override
 	public void failExternally(Throwable cause) {
 		LOG.info("Attempting to fail task externally {} ({}).", taskNameWithSubtask, executionId);
-		cancelOrFailAndCancelInvokable(ExecutionState.FAILED, cause);
+		try {
+			cancelOrFailAndCancelInvokable(ExecutionState.FAILED, cause);
+		} catch (Throwable t) {
+			try {
+				LOG.error("FATAL error for failExternally(). Force shutting down the JVM.", t);
+			} finally {
+				Runtime.getRuntime().halt(42);
+			}
+		}
 	}
 
 	private void cancelOrFailAndCancelInvokable(ExecutionState targetState, Throwable cause) {

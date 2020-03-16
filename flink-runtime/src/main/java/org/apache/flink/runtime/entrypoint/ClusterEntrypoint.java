@@ -407,7 +407,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 	public void onFatalError(Throwable exception) {
 		LOG.error("Fatal error occurred in the cluster entrypoint.", exception);
 
-		System.exit(RUNTIME_FAILURE_RETURN_CODE);
+		Runtime.getRuntime().halt(STARTUP_FAILURE_RETURN_CODE);
 	}
 
 	// --------------------------------------------------
@@ -535,7 +535,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 			clusterEntrypoint.startCluster();
 		} catch (ClusterEntrypointException e) {
 			LOG.error(String.format("Could not start cluster entrypoint %s.", clusterEntrypointName), e);
-			System.exit(STARTUP_FAILURE_RETURN_CODE);
+			Runtime.getRuntime().halt(STARTUP_FAILURE_RETURN_CODE);
 		}
 
 		clusterEntrypoint.getTerminationFuture().whenComplete((applicationStatus, throwable) -> {
@@ -548,7 +548,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 			}
 
 			LOG.info("Terminating cluster entrypoint process {} with exit code {}.", clusterEntrypointName, returnCode, throwable);
-			System.exit(returnCode);
+			Runtime.getRuntime().halt(returnCode);
 		});
 	}
 

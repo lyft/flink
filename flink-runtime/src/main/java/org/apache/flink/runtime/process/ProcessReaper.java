@@ -61,7 +61,7 @@ public class ProcessReaper extends UntypedActor {
 				}
 			}
 			finally {
-				System.exit(exitCode);
+				Runtime.getRuntime().halt(exitCode);
 			}
 		}
 	}
