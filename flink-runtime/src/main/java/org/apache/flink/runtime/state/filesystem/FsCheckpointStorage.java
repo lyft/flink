@@ -20,6 +20,7 @@ package org.apache.flink.runtime.state.filesystem;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.core.fs.EntropyInjector;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.CheckpointStorageLocation;
@@ -83,9 +84,11 @@ public class FsCheckpointStorage extends AbstractFsCheckpointStorage {
 		checkArgument(writeBufferSize >= 0);
 
 		this.fileSystem = checkNotNull(fs);
-		this.checkpointsDirectory = getCheckpointDirectoryForJob(checkpointBaseDirectory, jobId);
-		this.sharedStateDirectory = new Path(checkpointsDirectory, CHECKPOINT_SHARED_STATE_DIR);
-		this.taskOwnedStateDirectory = new Path(checkpointsDirectory, CHECKPOINT_TASK_OWNED_STATE_DIR);
+		Path entropyAwareDir = EntropyInjector.createEntropyAware(
+			fileSystem, checkpointBaseDirectory, FileSystem.WriteMode.NO_OVERWRITE).path();
+		this.checkpointsDirectory = getCheckpointDirectoryForJob(entropyAwareDir, jobId);
+		this.sharedStateDirectory = new Path(entropyAwareDir, CHECKPOINT_SHARED_STATE_DIR);
+		this.taskOwnedStateDirectory = new Path(entropyAwareDir, CHECKPOINT_TASK_OWNED_STATE_DIR);
 		this.fileSizeThreshold = fileSizeThreshold;
 		this.writeBufferSize = writeBufferSize;
 	}
