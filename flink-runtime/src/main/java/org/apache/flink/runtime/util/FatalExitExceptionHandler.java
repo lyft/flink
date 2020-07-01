@@ -41,7 +41,7 @@ public final class FatalExitExceptionHandler implements Thread.UncaughtException
 				"' produced an uncaught exception. Stopping the process...", e);
 		}
 		finally {
-			System.exit(-17);
+			Runtime.getRuntime().halt(-17);
 		}
 	}
 }

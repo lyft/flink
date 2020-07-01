@@ -267,7 +267,7 @@ public class TaskManagerRunner implements FatalErrorHandler, AutoCloseableAsync 
 	}
 
 	private void terminateJVM() {
-		System.exit(RUNTIME_FAILURE_RETURN_CODE);
+		Runtime.getRuntime().halt(RUNTIME_FAILURE_RETURN_CODE);
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -329,7 +329,7 @@ public class TaskManagerRunner implements FatalErrorHandler, AutoCloseableAsync 
 		} catch (Throwable t) {
 			final Throwable strippedThrowable = ExceptionUtils.stripException(t, UndeclaredThrowableException.class);
 			LOG.error("TaskManager initialization failed.", strippedThrowable);
-			System.exit(STARTUP_FAILURE_RETURN_CODE);
+			Runtime.getRuntime().halt(STARTUP_FAILURE_RETURN_CODE);
 		}
 	}
 
