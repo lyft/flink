@@ -25,7 +25,7 @@ under the License.
 	<parent>
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-metrics</artifactId>
-		<version>1.11-SNAPSHOT</version>
+		<version>1.11-lyfta737cdcbdb972913e2e31946f7a2bb9175945a29</version>
 		<relativePath>..</relativePath>
 	</parent>
 
