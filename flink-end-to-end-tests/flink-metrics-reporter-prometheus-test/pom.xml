@@ -22,7 +22,7 @@ under the License.
 	<parent>
 		<artifactId>flink-end-to-end-tests</artifactId>
 		<groupId>org.apache.flink</groupId>
-		<version>1.11-SNAPSHOT</version>
+		<version>1.11-lyft5f81a36a2aee511801f94532dbe4c0f8f47c80d8</version>
 		<relativePath>..</relativePath>
 	</parent>
 
