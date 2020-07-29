@@ -23,7 +23,7 @@
 	<parent>
 		<artifactId>flink-end-to-end-tests</artifactId>
 		<groupId>org.apache.flink</groupId>
-		<version>1.11-SNAPSHOT</version>
+		<version>1.11-lyft755b576bcc0666bd7876eada8f79fda2269856fa</version>
 	</parent>
 	<modelVersion>4.0.0</modelVersion>
 

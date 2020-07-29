@@ -38,7 +38,7 @@ under the License.
 
 	<groupId>org.apache.flink</groupId>
 	<artifactId>force-shading</artifactId>
-	<version>1.11-SNAPSHOT</version>
+	<version>1.11-lyft755b576bcc0666bd7876eada8f79fda2269856fa</version>
 
 	<packaging>jar</packaging>
 
