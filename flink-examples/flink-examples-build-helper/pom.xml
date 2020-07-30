@@ -24,7 +24,7 @@ under the License.
 	<parent>
 		<artifactId>flink-examples</artifactId>
 		<groupId>org.apache.flink</groupId>
-		<version>1.11-SNAPSHOT</version>
+		<version>1.11-lyft355184d69a8519d29937725c8d85e8465d7e3a90</version>
 		<relativePath>..</relativePath>
 	</parent>
 
