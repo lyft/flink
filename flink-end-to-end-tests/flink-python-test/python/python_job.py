@@ -59,7 +59,7 @@ def word_count():
 
     sink_ddl = """
         create table Results(
-            word STR,
+            word VARCHAR,
             `count` BIGINT,
             `count_java` BIGINT
         ) with (
