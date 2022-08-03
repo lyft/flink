@@ -99,6 +99,7 @@ try:
             sys.exit(-1)
         flink_version = VERSION.replace(".dev0", "-SNAPSHOT")
         flink_version = flink_version.replace("+", "-")
+        print(f"flink_version: {flink_version}")
 
         FLINK_HOME = os.path.abspath(
             "../../flink-dist/target/flink-%s-bin/flink-%s" % (flink_version, flink_version))
