@@ -18,6 +18,7 @@
 package org.apache.flink.runtime.scheduler.metrics;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.java.ClosureCleaner;
 import org.apache.flink.configuration.MetricOptions;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.execution.ExecutionState;
@@ -26,10 +27,14 @@ import org.apache.flink.runtime.executiongraph.ExecutionStateUpdateListener;
 import org.apache.flink.runtime.jobgraph.JobType;
 import org.apache.flink.util.clock.Clock;
 import org.apache.flink.util.clock.SystemClock;
+import org.slf4j.Logger;
 
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Predicate;
+
+import org.slf4j.LoggerFactory;
+
 
 /**
  * Metrics that capture how long a job was deploying tasks.
@@ -44,6 +49,8 @@ import java.util.function.Predicate;
  */
 public class DeploymentStateTimeMetrics
         implements ExecutionStateUpdateListener, StateTimeMetric, MetricsRegistrar {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DeploymentStateTimeMetrics.class);
 
     private static final long NOT_STARTED = -1L;
 
@@ -61,6 +68,7 @@ public class DeploymentStateTimeMetrics
     private long deploymentStart = NOT_STARTED;
     private long deploymentTimeTotal = 0L;
     private long startTime = NOT_STARTED;
+
 
     public DeploymentStateTimeMetrics(
             JobType semantic, MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings) {
@@ -114,12 +122,15 @@ public class DeploymentStateTimeMetrics
             case SCHEDULED:
                 expectedDeployments.add(execution);
                 startTime = clock.absoluteTimeMillis();
+                LOG.info("RM: the execution reached scheduled at " + startTime);
                 break;
             case DEPLOYING:
                 pendingDeployments++;
+                LOG.info("RM: the execution reached deploying at " + clock.absoluteTimeMillis());
                 break;
             case INITIALIZING:
             case RUNNING:
+                LOG.info("RM: the execution reached running at " + clock.absoluteTimeMillis());
                 completedDeployments++;
                 break;
             default:
@@ -150,10 +161,14 @@ public class DeploymentStateTimeMetrics
 
     private void markDeploymentStart() {
         deploymentStart = clock.absoluteTimeMillis();
+        LOG.info("RM: the execution deployment start [{}], begin [{}] ", deploymentStart,
+                startTime);
     }
 
     private void markDeploymentEnd() {
         deploymentTimeTotal += Math.max(0, clock.absoluteTimeMillis() - startTime);
+        LOG.info("RM: the execution deployment end [{}], startTime [{}], deploymentST [{}]",
+                deploymentTimeTotal, startTime, deploymentStart);
         deploymentStart = NOT_STARTED;
         startTime = NOT_STARTED;
     }
