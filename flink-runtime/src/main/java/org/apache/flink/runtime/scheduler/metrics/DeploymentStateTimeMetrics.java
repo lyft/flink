@@ -18,7 +18,6 @@
 package org.apache.flink.runtime.scheduler.metrics;
 
 import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.flink.api.java.ClosureCleaner;
 import org.apache.flink.configuration.MetricOptions;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.execution.ExecutionState;
@@ -27,17 +26,16 @@ import org.apache.flink.runtime.executiongraph.ExecutionStateUpdateListener;
 import org.apache.flink.runtime.jobgraph.JobType;
 import org.apache.flink.util.clock.Clock;
 import org.apache.flink.util.clock.SystemClock;
+
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Predicate;
 
-import org.slf4j.LoggerFactory;
-
-
 /**
- * Metrics that capture how long a job was deploying tasks.
+ * Metrics that capture how long a job was deploying tasks..
  *
  * <p>These metrics differentiate between batch & streaming use-cases:
  *
@@ -68,7 +66,6 @@ public class DeploymentStateTimeMetrics
     private long deploymentStart = NOT_STARTED;
     private long deploymentTimeTotal = 0L;
     private long startTime = NOT_STARTED;
-
 
     public DeploymentStateTimeMetrics(
             JobType semantic, MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings) {
@@ -161,14 +158,17 @@ public class DeploymentStateTimeMetrics
 
     private void markDeploymentStart() {
         deploymentStart = clock.absoluteTimeMillis();
-        LOG.info("RM: the execution deployment start [{}], begin [{}] ", deploymentStart,
-                startTime);
+        LOG.info(
+                "RM: the execution deployment start [{}], begin [{}] ", deploymentStart, startTime);
     }
 
     private void markDeploymentEnd() {
         deploymentTimeTotal += Math.max(0, clock.absoluteTimeMillis() - startTime);
-        LOG.info("RM: the execution deployment end [{}], startTime [{}], deploymentST [{}]",
-                deploymentTimeTotal, startTime, deploymentStart);
+        LOG.info(
+                "RM: the execution deployment end [{}], startTime [{}], deploymentST [{}]",
+                deploymentTimeTotal,
+                startTime,
+                deploymentStart);
         deploymentStart = NOT_STARTED;
         startTime = NOT_STARTED;
     }
