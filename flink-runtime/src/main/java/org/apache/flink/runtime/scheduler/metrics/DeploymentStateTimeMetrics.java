@@ -60,6 +60,7 @@ public class DeploymentStateTimeMetrics
     // metrics state
     private long deploymentStart = NOT_STARTED;
     private long deploymentTimeTotal = 0L;
+    private long startTime = NOT_STARTED;
 
     public DeploymentStateTimeMetrics(
             JobType semantic, MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings) {
@@ -112,6 +113,7 @@ public class DeploymentStateTimeMetrics
         switch (newState) {
             case SCHEDULED:
                 expectedDeployments.add(execution);
+                startTime = clock.absoluteTimeMillis();
                 break;
             case DEPLOYING:
                 pendingDeployments++;
@@ -151,8 +153,9 @@ public class DeploymentStateTimeMetrics
     }
 
     private void markDeploymentEnd() {
-        deploymentTimeTotal += Math.max(0, clock.absoluteTimeMillis() - deploymentStart);
+        deploymentTimeTotal += Math.max(0, clock.absoluteTimeMillis() - startTime);
         deploymentStart = NOT_STARTED;
+        startTime = NOT_STARTED;
     }
 
     @VisibleForTesting
