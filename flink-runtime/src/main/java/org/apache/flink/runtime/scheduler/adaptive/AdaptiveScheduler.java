@@ -101,7 +101,7 @@ import org.apache.flink.runtime.scheduler.adaptive.allocator.SlotAllocator;
 import org.apache.flink.runtime.scheduler.adaptive.allocator.VertexParallelism;
 import org.apache.flink.runtime.scheduler.adaptive.scalingpolicy.ReactiveScaleUpController;
 import org.apache.flink.runtime.scheduler.adaptive.scalingpolicy.ScaleUpController;
-import org.apache.flink.runtime.scheduler.metrics.DeploymentStateTimeMetrics;
+import org.apache.flink.runtime.scheduler.metrics.ExecutionStateTimeMetrics;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.util.ResourceCounter;
 import org.apache.flink.util.ExceptionUtils;
@@ -210,7 +210,7 @@ public class AdaptiveScheduler
 
     private final JobStatusStore jobStatusStore;
 
-    private final DeploymentStateTimeMetrics deploymentTimeMetrics;
+    private final ExecutionStateTimeMetrics deploymentTimeMetrics;
 
     public AdaptiveScheduler(
             JobGraph jobGraph,
@@ -285,7 +285,7 @@ public class AdaptiveScheduler
                 MetricOptions.JobStatusMetricsSettings.fromConfiguration(configuration);
 
         this.deploymentTimeMetrics =
-                new DeploymentStateTimeMetrics(jobGraph.getJobType(), jobStatusMetricsSettings);
+                new ExecutionStateTimeMetrics(jobGraph.getJobType(), jobStatusMetricsSettings);
 
         SchedulerBase.registerJobMetrics(
                 jobManagerJobMetricGroup,

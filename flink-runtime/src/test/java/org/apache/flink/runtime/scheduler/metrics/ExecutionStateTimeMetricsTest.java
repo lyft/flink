@@ -30,7 +30,7 @@ import java.time.Duration;
 import static org.apache.flink.runtime.scheduler.metrics.StateTimeMetricTest.enable;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DeploymentStateTimeMetricsTest {
+class ExecutionStateTimeMetricsTest {
 
     private static final MetricOptions.JobStatusMetricsSettings settings =
             enable(
@@ -42,8 +42,8 @@ class DeploymentStateTimeMetricsTest {
     void testInitialValues() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics deploymentStateTimeMetrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics deploymentStateTimeMetrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         assertThat(deploymentStateTimeMetrics.getCurrentTime()).isEqualTo(0L);
         assertThat(deploymentStateTimeMetrics.getTotalTime()).isEqualTo(0L);
@@ -52,8 +52,8 @@ class DeploymentStateTimeMetricsTest {
 
     @Test
     void testDeploymentStartsOnFirstDeploying() {
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
 
@@ -66,8 +66,8 @@ class DeploymentStateTimeMetricsTest {
 
     @Test
     void testDeploymentStart_batch_notTriggeredIfOneDeploymentIsRunning() {
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
 
@@ -85,8 +85,8 @@ class DeploymentStateTimeMetricsTest {
 
     @Test
     void testDeploymentEnd_batch() {
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -103,8 +103,8 @@ class DeploymentStateTimeMetricsTest {
 
     @Test
     void testDeploymentEnd_streaming() {
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.STREAMING, settings);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.STREAMING, settings);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -124,8 +124,8 @@ class DeploymentStateTimeMetricsTest {
 
     @Test
     void testDeploymentEnd_streaming_ignoresTerminalDeployments() {
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.STREAMING, settings);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.STREAMING, settings);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -148,8 +148,8 @@ class DeploymentStateTimeMetricsTest {
     void testGetCurrentTime() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -165,8 +165,8 @@ class DeploymentStateTimeMetricsTest {
     void testGetCurrentTimeResetOndDeployentEnd() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -182,8 +182,8 @@ class DeploymentStateTimeMetricsTest {
     void testGetCurrentTime_notResetOnSecondaryDeployment() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -203,8 +203,8 @@ class DeploymentStateTimeMetricsTest {
     void testGetTotalTime() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
 
@@ -227,8 +227,8 @@ class DeploymentStateTimeMetricsTest {
     void testGetTotalTimeIncludesCurrentTime() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -244,8 +244,8 @@ class DeploymentStateTimeMetricsTest {
     void testCleanStateAfterFullDeploymentCycle() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();
@@ -264,8 +264,8 @@ class DeploymentStateTimeMetricsTest {
     void testCleanStateAfterEarlyDeploymentFailure() {
         final ManualClock clock = new ManualClock(Duration.ofMillis(5).toNanos());
 
-        final DeploymentStateTimeMetrics metrics =
-                new DeploymentStateTimeMetrics(JobType.BATCH, settings, clock);
+        final ExecutionStateTimeMetrics metrics =
+                new ExecutionStateTimeMetrics(JobType.BATCH, settings, clock);
 
         final ExecutionAttemptID id1 = new ExecutionAttemptID();
         final ExecutionAttemptID id2 = new ExecutionAttemptID();

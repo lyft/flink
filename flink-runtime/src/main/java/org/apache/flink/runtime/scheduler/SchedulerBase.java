@@ -82,7 +82,7 @@ import org.apache.flink.runtime.query.KvStateLocation;
 import org.apache.flink.runtime.query.UnknownKvStateLocation;
 import org.apache.flink.runtime.scheduler.exceptionhistory.FailureHandlingResultSnapshot;
 import org.apache.flink.runtime.scheduler.exceptionhistory.RootExceptionHistoryEntry;
-import org.apache.flink.runtime.scheduler.metrics.DeploymentStateTimeMetrics;
+import org.apache.flink.runtime.scheduler.metrics.ExecutionStateTimeMetrics;
 import org.apache.flink.runtime.scheduler.metrics.JobStatusMetrics;
 import org.apache.flink.runtime.scheduler.stopwithsavepoint.StopWithSavepointTerminationHandlerImpl;
 import org.apache.flink.runtime.scheduler.stopwithsavepoint.StopWithSavepointTerminationManager;
@@ -162,7 +162,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
 
     private final MetricOptions.JobStatusMetricsSettings jobStatusMetricsSettings;
 
-    private final DeploymentStateTimeMetrics deploymentStateTimeMetrics;
+    private final ExecutionStateTimeMetrics deploymentStateTimeMetrics;
 
     public SchedulerBase(
             final Logger log,
@@ -202,7 +202,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.jobStatusMetricsSettings =
                 MetricOptions.JobStatusMetricsSettings.fromConfiguration(jobMasterConfiguration);
         this.deploymentStateTimeMetrics =
-                new DeploymentStateTimeMetrics(jobGraph.getJobType(), jobStatusMetricsSettings);
+                new ExecutionStateTimeMetrics(jobGraph.getJobType(), jobStatusMetricsSettings);
 
         this.executionGraph =
                 createAndRestoreExecutionGraph(
@@ -623,7 +623,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
             MetricGroup metrics,
             JobStatusProvider jobStatusProvider,
             Gauge<Long> numberOfRestarts,
-            DeploymentStateTimeMetrics deploymentTimeMetrics,
+            ExecutionStateTimeMetrics deploymentTimeMetrics,
             Consumer<JobStatusListener> jobStatusListenerRegistrar,
             long initializationTimestamp,
             MetricOptions.JobStatusMetricsSettings jobStatusMetricsSettings) {

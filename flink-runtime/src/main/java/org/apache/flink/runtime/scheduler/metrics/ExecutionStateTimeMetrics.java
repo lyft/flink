@@ -45,10 +45,10 @@ import java.util.function.Predicate;
  * <p>Streaming: Measures from the start of the first deployment until all tasks have been deployed.
  * From that point on checkpoints can be triggered, and thus progress be made.
  */
-public class DeploymentStateTimeMetrics
+public class ExecutionStateTimeMetrics
         implements ExecutionStateUpdateListener, StateTimeMetric, MetricsRegistrar {
 
-    private static final Logger LOG = LoggerFactory.getLogger(DeploymentStateTimeMetrics.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ExecutionStateTimeMetrics.class);
 
     private static final long NOT_STARTED = -1L;
 
@@ -67,13 +67,13 @@ public class DeploymentStateTimeMetrics
     private long deploymentTimeTotal = 0L;
     private long startTime = NOT_STARTED;
 
-    public DeploymentStateTimeMetrics(
+    public ExecutionStateTimeMetrics(
             JobType semantic, MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings) {
         this(semantic, stateTimeMetricsSettings, SystemClock.getInstance());
     }
 
     @VisibleForTesting
-    DeploymentStateTimeMetrics(
+    ExecutionStateTimeMetrics(
             JobType semantic,
             MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings,
             Clock clock) {
@@ -118,14 +118,17 @@ public class DeploymentStateTimeMetrics
         switch (newState) {
             case SCHEDULED:
                 expectedDeployments.add(execution);
-                startTime = clock.absoluteTimeMillis();
-                LOG.info("RM: the execution reached scheduled at " + startTime);
+                if (startTime == NOT_STARTED) {
+                    startTime = clock.absoluteTimeMillis();
+                    LOG.info("RM: the execution reached scheduled at " + startTime);
+                }
                 break;
             case DEPLOYING:
                 pendingDeployments++;
                 LOG.info("RM: the execution reached deploying at " + clock.absoluteTimeMillis());
                 break;
             case INITIALIZING:
+                break;
             case RUNNING:
                 LOG.info("RM: the execution reached running at " + clock.absoluteTimeMillis());
                 completedDeployments++;
@@ -139,6 +142,7 @@ public class DeploymentStateTimeMetrics
                 pendingDeployments--;
                 break;
             case INITIALIZING:
+                break;
             case RUNNING:
                 completedDeployments--;
                 break;
