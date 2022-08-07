@@ -35,15 +35,10 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 /**
- * Metrics that capture how long a job was deploying tasks..
+ * Metrics that capture how long a job was in SCHEDULED -> DEPLOYING -> INITIALIZING -> RUNNING
  *
- * <p>These metrics differentiate between batch & streaming use-cases:
- *
- * <p>Batch: Measures from the start of the first deployment until the first task has been deployed.
- * From that point the job is making progress.
- *
- * <p>Streaming: Measures from the start of the first deployment until all tasks have been deployed.
- * From that point on checkpoints can be triggered, and thus progress be made.
+ * <p>Measures from the start of the first deployment until all tasks have been deployed. From that
+ * point on checkpoints can be triggered, and thus progress be made.
  */
 public class ExecutionStateTimeMetrics
         implements ExecutionStateUpdateListener, StateTimeMetric, MetricsRegistrar {
@@ -52,7 +47,6 @@ public class ExecutionStateTimeMetrics
 
     private static final long NOT_STARTED = -1L;
 
-    private final Predicate<Integer> deploymentStartPredicate;
     private final Predicate<Integer> deploymentEndPredicate;
     private final MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings;
     private final Clock clock;
@@ -65,7 +59,6 @@ public class ExecutionStateTimeMetrics
     // metrics state
     private long deploymentStart = NOT_STARTED;
     private long deploymentTimeTotal = 0L;
-    private long startTime = NOT_STARTED;
 
     public ExecutionStateTimeMetrics(
             JobType semantic, MetricOptions.JobStatusMetricsSettings stateTimeMetricsSettings) {
@@ -79,15 +72,8 @@ public class ExecutionStateTimeMetrics
             Clock clock) {
         this.stateTimeMetricsSettings = stateTimeMetricsSettings;
         this.clock = clock;
-
-        if (semantic == JobType.BATCH) {
-            deploymentStartPredicate = completedDeployments -> completedDeployments == 0;
-            deploymentEndPredicate = completedDeployments -> completedDeployments > 0;
-        } else {
-            deploymentStartPredicate = completedDeployments -> true;
-            deploymentEndPredicate =
-                    completedDeployments -> completedDeployments == expectedDeployments.size();
-        }
+        deploymentEndPredicate =
+                completedDeployments -> completedDeployments == expectedDeployments.size();
     }
 
     @Override
@@ -115,22 +101,20 @@ public class ExecutionStateTimeMetrics
     @Override
     public void onStateUpdate(
             ExecutionAttemptID execution, ExecutionState previousState, ExecutionState newState) {
+        LOG.info(
+                "OnStateUpdate: previousState [{}], newState [{}]",
+                previousState.name(),
+                newState.name());
         switch (newState) {
             case SCHEDULED:
                 expectedDeployments.add(execution);
-                if (startTime == NOT_STARTED) {
-                    startTime = clock.absoluteTimeMillis();
-                    LOG.info("RM: the execution reached scheduled at " + startTime);
-                }
+                pendingDeployments++;
                 break;
             case DEPLOYING:
-                pendingDeployments++;
-                LOG.info("RM: the execution reached deploying at " + clock.absoluteTimeMillis());
                 break;
             case INITIALIZING:
                 break;
             case RUNNING:
-                LOG.info("RM: the execution reached running at " + clock.absoluteTimeMillis());
                 completedDeployments++;
                 break;
             default:
@@ -138,8 +122,10 @@ public class ExecutionStateTimeMetrics
                 expectedDeployments.remove(execution);
         }
         switch (previousState) {
-            case DEPLOYING:
+            case SCHEDULED:
                 pendingDeployments--;
+                break;
+            case DEPLOYING:
                 break;
             case INITIALIZING:
                 break;
@@ -149,7 +135,7 @@ public class ExecutionStateTimeMetrics
         }
 
         if (deploymentStart == NOT_STARTED) {
-            if (pendingDeployments > 0 && deploymentStartPredicate.test(completedDeployments)) {
+            if (pendingDeployments > 0) {
                 markDeploymentStart();
             }
         } else {
@@ -162,19 +148,16 @@ public class ExecutionStateTimeMetrics
 
     private void markDeploymentStart() {
         deploymentStart = clock.absoluteTimeMillis();
-        LOG.info(
-                "RM: the execution deployment start [{}], begin [{}] ", deploymentStart, startTime);
     }
 
     private void markDeploymentEnd() {
-        deploymentTimeTotal += Math.max(0, clock.absoluteTimeMillis() - startTime);
+        long deploymentEnd = Math.max(0, clock.absoluteTimeMillis() - deploymentStart);
+        deploymentTimeTotal += deploymentEnd;
         LOG.info(
-                "RM: the execution deployment end [{}], startTime [{}], deploymentST [{}]",
-                deploymentTimeTotal,
-                startTime,
-                deploymentStart);
+                "The execution deploymentStartTime [{}], " + "deploymentEndTime [{}]",
+                deploymentStart,
+                deploymentEnd);
         deploymentStart = NOT_STARTED;
-        startTime = NOT_STARTED;
     }
 
     @VisibleForTesting
