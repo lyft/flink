@@ -114,6 +114,12 @@ public class ShardConsumer<T> implements Runnable {
                         recordPublisher.run(
                                 batch -> {
                                     if (!batch.getDeaggregatedRecords().isEmpty()) {
+                                        // Mimic skewness
+                                        if (fetcherRef.getIndexOfThisConsumerSubtask() == 0) {
+                                            LOG.info("Mimic skewness. Sleep subtask 0 10 seconds.");
+                                            Thread.sleep(10000);
+                                        }
+
                                         LOG.debug(
                                                 "stream: {}, shard: {}, millis behind latest: {}, batch size: {}",
                                                 subscribedShard.getStreamName(),

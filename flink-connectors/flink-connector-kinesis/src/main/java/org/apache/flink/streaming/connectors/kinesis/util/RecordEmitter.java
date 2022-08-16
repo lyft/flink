@@ -218,6 +218,9 @@ public abstract class RecordEmitter<T extends TimestampedValue> implements Runna
                 synchronized (condition) {
                     // wait until ready to emit
                     try {
+                        // Mimic CPU throttle
+                        LOG.info("Reached lookahead. CPU throttle 120 seconds");
+                        Thread.sleep(120000);
                         condition.wait(idleSleepMillis);
                     } catch (InterruptedException e) {
                         continue runLoop;

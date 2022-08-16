@@ -57,6 +57,6 @@ public interface RecordPublisher {
      */
     interface RecordBatchConsumer {
 
-        SequenceNumber accept(RecordBatch recordBatch);
+        SequenceNumber accept(RecordBatch recordBatch) throws InterruptedException;
     }
 }
