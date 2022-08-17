@@ -115,7 +115,12 @@ public class FanOutRecordPublisher implements RecordPublisher {
                                     toSdkV1Records(event.records()),
                                     subscribedShard,
                                     event.millisBehindLatest());
-                    SequenceNumber sequenceNumber = recordConsumer.accept(recordBatch);
+                    SequenceNumber sequenceNumber = null;
+                    try {
+                        sequenceNumber = recordConsumer.accept(recordBatch);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
                     nextStartingPosition =
                             StartingPosition.continueFromSequenceNumber(sequenceNumber);
                 };
