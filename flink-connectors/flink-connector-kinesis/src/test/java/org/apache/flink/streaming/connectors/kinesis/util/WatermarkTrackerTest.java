@@ -71,6 +71,32 @@ public class WatermarkTrackerTest {
             return globalWatermark;
         }
 
+        @Override
+        public long getWatermark() {
+            refreshWatermarkSnapshot(this.watermarks);
+
+            long currentTime = getCurrentTime();
+            String subtaskId = this.getSubtaskId();
+
+            WatermarkState ws = watermarks.get(subtaskId);
+            if (ws == null) {
+                watermarks.put(subtaskId, ws = new WatermarkState());
+            }
+            saveWatermark(subtaskId, ws);
+
+            long globalWatermark = ws.watermark;
+            for (Map.Entry<String, WatermarkState> e : watermarks.entrySet()) {
+                ws = e.getValue();
+                if (ws.lastUpdated + getUpdateTimeoutMillis() < currentTime) {
+                    // ignore outdated subtask
+                    updateTimeoutCount++;
+                    continue;
+                }
+                globalWatermark = Math.min(ws.watermark, globalWatermark);
+            }
+            return globalWatermark;
+        }
+
         protected void refreshWatermarkSnapshot(Map<String, WatermarkState> watermarks) {
             watermarks.put("wm1", wm1);
         }

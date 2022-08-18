@@ -75,6 +75,26 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
     }
 
     @Override
+    public long getWatermark() {
+        WatermarkUpdate update = new WatermarkUpdate();
+        update.id = getSubtaskId();
+        update.noOp = true;
+        try {
+            byte[] resultBytes =
+                    aggregateManager.updateGlobalAggregate(
+                            aggregateName,
+                            InstantiationUtil.serializeObject(update),
+                            aggregateFunction);
+            WatermarkResult result =
+                    InstantiationUtil.deserializeObject(
+                            resultBytes, this.getClass().getClassLoader());
+            return result.watermark;
+        } catch (ClassNotFoundException | IOException ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
+    @Override
     public void open(RuntimeContext context) {
         super.open(context);
         this.aggregateFunction.updateTimeoutMillis = super.getUpdateTimeoutMillis();
@@ -92,6 +112,7 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
     protected static class WatermarkUpdate implements Serializable {
         protected long watermark = Long.MIN_VALUE;
         protected String id;
+        protected boolean noOp = false;
     }
 
     /** Watermark aggregation result. */
@@ -129,12 +150,18 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
+            // no op to get global watermark without updating it
+            if (value.noOp) {
+                addCount--;
+                return accumulator;
+            }
             WatermarkState ws = accumulator.get(value.id);
             if (ws == null) {
                 accumulator.put(value.id, ws = new WatermarkState());
             }
             ws.watermark = value.watermark;
             ws.lastUpdated = System.currentTimeMillis();
+
             return accumulator;
         }
 

@@ -1263,11 +1263,11 @@ public class KinesisDataFetcher<T> {
         public void onProcessingTime(long timestamp) {
             if (nextWatermark != Long.MIN_VALUE) {
                 long globalWatermark = lastGlobalWatermark;
-                // TODO: refresh watermark while idle
                 if (!(isIdle && nextWatermark == propagatedLocalWatermark)) {
                     globalWatermark = watermarkTracker.updateWatermark(nextWatermark);
                     propagatedLocalWatermark = nextWatermark;
                 } else {
+                    globalWatermark = watermarkTracker.getWatermark();
                     LOG.info(
                             "WatermarkSyncCallback subtask: {} is idle",
                             indexOfThisConsumerSubtask);
