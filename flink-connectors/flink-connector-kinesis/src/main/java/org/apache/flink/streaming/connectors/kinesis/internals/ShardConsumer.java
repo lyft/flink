@@ -117,12 +117,12 @@ public class ShardConsumer<T> implements Runnable {
             while (isRunning()) {
                 // mimic 10 mins of idle shard after 5 mins of being up
                 if (shouldTrigger
-                    && Duration.between(startTime, Instant.now()).toSeconds() > 300
-                    && fetcherRef.getSubtaskId() == 0) {
-                  LOG.info("Simulating idle shard in subtask {}", fetcherRef.getSubtaskId());
-                  Thread.sleep(600000);
-                  shouldTrigger = false;
-                  LOG.info("We have awoken in subtask {}", fetcherRef.getSubtaskId());
+                        && Duration.between(startTime, Instant.now()).getSeconds() > 300
+                        && fetcherRef.getSubtaskId() == 0) {
+                    LOG.info("Simulating idle shard in subtask {}", fetcherRef.getSubtaskId());
+                    Thread.sleep(600000);
+                    shouldTrigger = false;
+                    LOG.info("We have awoken in subtask {}", fetcherRef.getSubtaskId());
                 }
                 final RecordPublisherRunResult result =
                         recordPublisher.run(
