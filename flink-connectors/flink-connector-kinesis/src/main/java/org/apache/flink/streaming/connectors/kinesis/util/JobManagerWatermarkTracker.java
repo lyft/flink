@@ -18,6 +18,7 @@
 package org.apache.flink.streaming.connectors.kinesis.util;
 
 import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.runtime.taskexecutor.GlobalAggregateManager;
@@ -58,6 +59,18 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
         WatermarkUpdate update = new WatermarkUpdate();
         update.id = getSubtaskId();
         update.watermark = localWatermark;
+        return updateWatermark(update);
+    }
+
+    @Override
+    public long getWatermark() {
+        WatermarkUpdate update = new WatermarkUpdate();
+        update.id = getSubtaskId();
+        update.noOp = true;
+        return updateWatermark(update);
+    }
+
+    public long updateWatermark(WatermarkUpdate update) {
         try {
             byte[] resultBytes =
                     aggregateManager.updateGlobalAggregate(
@@ -68,26 +81,6 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
                     InstantiationUtil.deserializeObject(
                             resultBytes, this.getClass().getClassLoader());
             this.updateTimeoutCount += result.updateTimeoutCount;
-            return result.watermark;
-        } catch (ClassNotFoundException | IOException ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-
-    @Override
-    public long getWatermark() {
-        WatermarkUpdate update = new WatermarkUpdate();
-        update.id = getSubtaskId();
-        update.noOp = true;
-        try {
-            byte[] resultBytes =
-                    aggregateManager.updateGlobalAggregate(
-                            aggregateName,
-                            InstantiationUtil.serializeObject(update),
-                            aggregateFunction);
-            WatermarkResult result =
-                    InstantiationUtil.deserializeObject(
-                            resultBytes, this.getClass().getClassLoader());
             return result.watermark;
         } catch (ClassNotFoundException | IOException ex) {
             throw new RuntimeException(ex);
@@ -122,7 +115,8 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
     }
 
     /** Aggregate function for computing a combined watermark of parallel subtasks. */
-    private static class WatermarkAggregateFunction
+    @VisibleForTesting
+    static class WatermarkAggregateFunction
             implements AggregateFunction<byte[], Map<String, WatermarkState>, byte[]> {
 
         private long updateTimeoutMillis = DEFAULT_UPDATE_TIMEOUT_MILLIS;
@@ -161,7 +155,6 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
             }
             ws.watermark = value.watermark;
             ws.lastUpdated = System.currentTimeMillis();
-
             return accumulator;
         }
 
