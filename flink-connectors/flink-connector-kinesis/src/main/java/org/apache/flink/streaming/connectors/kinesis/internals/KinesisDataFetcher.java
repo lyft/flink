@@ -429,6 +429,10 @@ public class KinesisDataFetcher<T> {
         StreamConsumerRegistrarUtil.lazilyRegisterStreamConsumers(configProps, streams);
     }
 
+    public int getSubtaskId() {
+        return indexOfThisConsumerSubtask;
+    }
+
     private RecordEmitter createRecordEmitter(Properties configProps) {
         if (periodicWatermarkAssigner != null && watermarkTracker != null) {
             int queueCapacity =

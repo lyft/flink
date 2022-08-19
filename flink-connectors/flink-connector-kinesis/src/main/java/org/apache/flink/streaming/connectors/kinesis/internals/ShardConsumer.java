@@ -33,6 +33,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.time.Duration;
+import java.time.Instant;
 
 import static java.util.Optional.ofNullable;
 import static org.apache.flink.streaming.connectors.kinesis.internals.publisher.RecordPublisher.RecordPublisherRunResult.CANCELLED;
@@ -108,8 +110,20 @@ public class ShardConsumer<T> implements Runnable {
 
     @Override
     public void run() {
+        Instant startTime = Instant.now();
+        boolean shouldTrigger = true;
+
         try {
             while (isRunning()) {
+                // mimic 10 mins of idle shard after 5 mins of being up
+                if (shouldTrigger
+                    && Duration.between(startTime, Instant.now()).toSeconds() > 300
+                    && fetcherRef.getSubtaskId() == 0) {
+                  LOG.info("Simulating idle shard in subtask {}", fetcherRef.getSubtaskId());
+                  Thread.sleep(600000);
+                  shouldTrigger = false;
+                  LOG.info("We have awoken in subtask {}", fetcherRef.getSubtaskId());
+                }
                 final RecordPublisherRunResult result =
                         recordPublisher.run(
                                 batch -> {
