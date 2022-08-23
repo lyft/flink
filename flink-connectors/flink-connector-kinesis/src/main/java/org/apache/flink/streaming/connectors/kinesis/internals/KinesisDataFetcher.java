@@ -1304,15 +1304,15 @@ public class KinesisDataFetcher<T> {
                     lastLogged = System.currentTimeMillis();
                     LOG.info(
                             "WatermarkSyncCallback subtask: {} local watermark: {}"
-                                    + ", global watermark: {}, delta: {} timeouts: {}, emitter: {}"
-                                    + ", idle: {}",
+                                    + ", global watermark: {}, delta: {} timeouts: {}, idle: {}"
+                                    + ", emitter: {}",
                             indexOfThisConsumerSubtask,
                             nextWatermark,
                             globalWatermark,
                             nextWatermark - globalWatermark,
                             watermarkTracker.getUpdateTimeoutCount(),
-                            recordEmitter.printInfo(),
-                            isIdle);
+                            isIdle,
+                            recordEmitter.printInfo());
 
                     // Following is for debugging non-reproducible issue with stalled watermark
                     if (globalWatermark == nextWatermark
