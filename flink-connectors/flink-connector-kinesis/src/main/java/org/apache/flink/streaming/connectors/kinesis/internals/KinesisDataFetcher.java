@@ -142,6 +142,9 @@ public class KinesisDataFetcher<T> {
     /** The metric group that all metrics should be registered to. */
     private final MetricGroup consumerMetricGroup;
 
+    /** The metric group for the individual subtask. */
+    private final MetricGroup shardMetricsGroup;
+
     // ------------------------------------------------------------------------
     //  Subtask-specific settings
     // ------------------------------------------------------------------------
@@ -415,7 +418,9 @@ public class KinesisDataFetcher<T> {
                 runtimeContext
                         .getMetricGroup()
                         .addGroup(KinesisConsumerMetricConstants.KINESIS_CONSUMER_METRICS_GROUP);
-
+        this.shardMetricsGroup =
+                consumerMetricGroup.addGroup(
+                        "subtaskId", String.valueOf(indexOfThisConsumerSubtask));
         this.error = checkNotNull(error);
         this.subscribedShardsState = checkNotNull(subscribedShardsState);
         this.subscribedStreamsToLastDiscoveredShardIds =
@@ -1213,6 +1218,7 @@ public class KinesisDataFetcher<T> {
                 isIdle = false;
             }
             nextWatermark = potentialNextWatermark;
+            shardMetricsGroup.gauge("isIdle", () -> isIdle ? 1 : 0);
         }
     }
 
@@ -1272,9 +1278,7 @@ public class KinesisDataFetcher<T> {
             this.timerService = checkNotNull(timerService);
             this.interval = interval;
             this.updateGlobalWatermarkForIdleSubtask = updateGlobalWatermarkForIdleSubtask;
-            MetricGroup shardMetricsGroup =
-                    consumerMetricGroup.addGroup(
-                            "subtaskId", String.valueOf(indexOfThisConsumerSubtask));
+
             shardMetricsGroup.gauge("localWatermark", () -> nextWatermark);
             shardMetricsGroup.gauge("globalWatermark", () -> lastGlobalWatermark);
         }
