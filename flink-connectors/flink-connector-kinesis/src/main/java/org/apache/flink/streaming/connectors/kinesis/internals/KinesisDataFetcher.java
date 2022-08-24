@@ -631,19 +631,7 @@ public class KinesisDataFetcher<T> {
                     watermarkTracker.setUpdateTimeoutMillis(
                             watermarkSyncMillis * 3); // synchronization latency
                     watermarkTracker.open(runtimeContext);
-                    boolean updateGlobalWatermarkForIdleSubtask =
-                            Boolean.parseBoolean(
-                                    getConsumerConfiguration()
-                                            .getProperty(
-                                                    ConsumerConfigConstants.WATERMARK_SYNC_GLOBAL,
-                                                    Boolean.toString(
-                                                            ConsumerConfigConstants
-                                                                    .DEFAULT_WATERMARK_SYNC_GLOBAL)));
-                    new WatermarkSyncCallback(
-                                    timerService,
-                                    watermarkSyncMillis,
-                                    updateGlobalWatermarkForIdleSubtask)
-                            .start();
+                    new WatermarkSyncCallback(timerService, watermarkSyncMillis).start();
                     // emit records ahead of watermark to offset synchronization latency
                     long lookaheadMillis =
                             Long.parseLong(
@@ -1265,19 +1253,14 @@ public class KinesisDataFetcher<T> {
 
         private final ProcessingTimeService timerService;
         private final long interval;
-        private final boolean updateGlobalWatermarkForIdleSubtask;
         private long lastGlobalWatermark = Long.MIN_VALUE;
         private long propagatedLocalWatermark = Long.MIN_VALUE;
         private int stalledWatermarkIntervalCount = 0;
         private long lastLogged;
 
-        WatermarkSyncCallback(
-                ProcessingTimeService timerService,
-                long interval,
-                boolean updateGlobalWatermarkForIdleSubtask) {
+        WatermarkSyncCallback(ProcessingTimeService timerService, long interval) {
             this.timerService = checkNotNull(timerService);
             this.interval = interval;
-            this.updateGlobalWatermarkForIdleSubtask = updateGlobalWatermarkForIdleSubtask;
 
             shardMetricsGroup.gauge("localWatermark", () -> nextWatermark);
             shardMetricsGroup.gauge("globalWatermark", () -> lastGlobalWatermark);
@@ -1296,9 +1279,7 @@ public class KinesisDataFetcher<T> {
                     globalWatermark = watermarkTracker.updateWatermark(nextWatermark);
                     propagatedLocalWatermark = nextWatermark;
                 } else {
-                    if (updateGlobalWatermarkForIdleSubtask) {
-                        globalWatermark = watermarkTracker.getWatermark();
-                    }
+                    globalWatermark = watermarkTracker.getWatermark();
                     LOG.info(
                             "WatermarkSyncCallback subtask: {} is idle",
                             indexOfThisConsumerSubtask);
