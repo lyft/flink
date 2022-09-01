@@ -18,7 +18,6 @@
 package org.apache.flink.streaming.connectors.kinesis.util;
 
 import org.apache.flink.annotation.PublicEvolving;
-import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.runtime.taskexecutor.GlobalAggregateManager;
@@ -115,8 +114,7 @@ public class JobManagerWatermarkTracker extends WatermarkTracker {
     }
 
     /** Aggregate function for computing a combined watermark of parallel subtasks. */
-    @VisibleForTesting
-    static class WatermarkAggregateFunction
+    private static class WatermarkAggregateFunction
             implements AggregateFunction<byte[], Map<String, WatermarkState>, byte[]> {
 
         private long updateTimeoutMillis = DEFAULT_UPDATE_TIMEOUT_MILLIS;
