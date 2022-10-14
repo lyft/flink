@@ -421,6 +421,7 @@ public class KinesisDataFetcher<T> {
         this.shardMetricsGroup =
                 consumerMetricGroup.addGroup(
                         "subtaskId", String.valueOf(indexOfThisConsumerSubtask));
+        this.shardMetricsGroup.gauge("isIdle", () -> isIdle ? 1 : 0);
         this.error = checkNotNull(error);
         this.subscribedShardsState = checkNotNull(subscribedShardsState);
         this.subscribedStreamsToLastDiscoveredShardIds =
@@ -1218,7 +1219,6 @@ public class KinesisDataFetcher<T> {
                 isIdle = false;
             }
             nextWatermark = potentialNextWatermark;
-            shardMetricsGroup.gauge("isIdle", () -> isIdle ? 1 : 0);
         }
     }
 
