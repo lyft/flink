@@ -31,6 +31,9 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Predicate;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Metrics that capture how long a job was deploying tasks.
  *
@@ -44,6 +47,8 @@ import java.util.function.Predicate;
  */
 public class DeploymentStateTimeMetrics
         implements ExecutionStateUpdateListener, StateTimeMetric, MetricsRegistrar {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DeploymentStateTimeMetrics.class);
 
     private static final long NOT_STARTED = -1L;
 
@@ -151,7 +156,12 @@ public class DeploymentStateTimeMetrics
     }
 
     private void markDeploymentEnd() {
-        deploymentTimeTotal += Math.max(0, clock.absoluteTimeMillis() - deploymentStart);
+        long deploymentTime = Math.max(0, clock.absoluteTimeMillis() - deploymentStart);
+        deploymentTimeTotal += deploymentTime;
+        LOG.info(
+                "The job: deploymentStartTime [{}], " + "deploymentTime [{}]",
+                deploymentStart,
+                deploymentTime);
         deploymentStart = NOT_STARTED;
     }
 
