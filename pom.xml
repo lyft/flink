@@ -136,7 +136,7 @@ under the License.
 		<!-- Default scala versions, must be overwritten by build profiles, so we set something
 		invalid here -->
 		<scala.version>2.12.7</scala.version>
-		<scala.binary.version>2.12.7</scala.binary.version>
+		<scala.binary.version>2.12</scala.binary.version>
 		<chill.version>0.7.6</chill.version>
 		<!-- keep FlinkTestcontainersConfigurator.configureZookeeperContainer in sync -->
 		<zookeeper.version>3.7.1</zookeeper.version>
