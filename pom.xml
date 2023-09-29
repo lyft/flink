@@ -934,7 +934,7 @@ under the License.
 			<id>scala-2.12</id>
 			<properties>
 				<scala.version>2.12.7</scala.version>
-				<scala.binary.version>2.12.7</scala.binary.version>
+				<scala.binary.version>2.12</scala.binary.version>
 			</properties>
 			<activation>
 				<property>
