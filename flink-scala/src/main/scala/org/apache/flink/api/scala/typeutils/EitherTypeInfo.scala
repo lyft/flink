@@ -17,16 +17,14 @@
  */
 package org.apache.flink.api.scala.typeutils
 
-import org.apache.flink.annotation.{PublicEvolving, Public}
+import org.apache.flink.annotation.{Public, PublicEvolving}
 import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.common.typeutils.TypeSerializer
 
 import scala.collection.JavaConverters._
 
-/**
- * TypeInformation [[Either]].
- */
+/** TypeInformation [[Either]]. */
 @Public
 class EitherTypeInfo[A, B, T <: Either[A, B]](
     val clazz: Class[T],
@@ -52,18 +50,18 @@ class EitherTypeInfo[A, B, T <: Either[A, B]](
 
   @PublicEvolving
   def createSerializer(executionConfig: ExecutionConfig): TypeSerializer[T] = {
-    val leftSerializer = if (leftTypeInfo != null) {
+    val leftSerializer: TypeSerializer[A] = if (leftTypeInfo != null) {
       leftTypeInfo.createSerializer(executionConfig)
     } else {
-      new NothingSerializer
+      (new NothingSerializer).asInstanceOf[TypeSerializer[A]]
     }
 
-    val rightSerializer = if (rightTypeInfo != null) {
+    val rightSerializer: TypeSerializer[B] = if (rightTypeInfo != null) {
       rightTypeInfo.createSerializer(executionConfig)
     } else {
-      new NothingSerializer
+      (new NothingSerializer).asInstanceOf[TypeSerializer[B]]
     }
-    new EitherSerializer(leftSerializer, rightSerializer)
+    new EitherSerializer[A, B](leftSerializer, rightSerializer).asInstanceOf[TypeSerializer[T]]
   }
 
   override def equals(obj: Any): Boolean = {

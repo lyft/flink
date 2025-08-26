@@ -19,9 +19,9 @@
 package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.NettyShuffleEnvironmentOptions;
 import org.apache.flink.runtime.io.network.TaskEventDispatcher;
-import org.apache.flink.runtime.io.network.partition.ResultPartitionProvider;
-import org.apache.flink.util.NetUtils;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionManager;
 
 import org.apache.flink.shaded.netty4.io.netty.bootstrap.Bootstrap;
 import org.apache.flink.shaded.netty4.io.netty.bootstrap.ServerBootstrap;
@@ -33,141 +33,140 @@ import java.lang.reflect.Field;
 import java.net.InetAddress;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
+import static org.junit.Assert.assertNotNull;
 
-/**
- * Simple netty connection manager test.
- */
+/** Simple netty connection manager test. */
 public class NettyConnectionManagerTest {
 
-	/**
-	 * Tests that the number of arenas and number of threads of the client and
-	 * server are set to the same number, that is the number of configured
-	 * task slots.
-	 */
-	@Test
-	public void testMatchingNumberOfArenasAndThreadsAsDefault() throws Exception {
-		// Expected number of arenas and threads
-		int numberOfSlots = 2;
+    /**
+     * Tests that the number of arenas and number of threads of the client and server are set to the
+     * same number, that is the number of configured task slots.
+     */
+    @Test
+    public void testMatchingNumberOfArenasAndThreadsAsDefault() throws Exception {
+        // Expected number of arenas and threads
+        int numberOfSlots = 2;
+        NettyConnectionManager connectionManager;
+        {
+            NettyConfig config =
+                    new NettyConfig(
+                            InetAddress.getLocalHost(),
+                            0,
+                            1024,
+                            numberOfSlots,
+                            new Configuration());
 
-		NettyConfig config = new NettyConfig(
-				InetAddress.getLocalHost(),
-				NetUtils.getAvailablePort(),
-				1024,
-				numberOfSlots,
-				new Configuration());
+            connectionManager = createNettyConnectionManager(config);
+            connectionManager.start();
+        }
+        assertNotNull(
+                "connectionManager is null due to fail to get a free port", connectionManager);
 
-		NettyConnectionManager connectionManager = new NettyConnectionManager(config);
+        assertEquals(numberOfSlots, connectionManager.getBufferPool().getNumberOfArenas());
 
-		connectionManager.start(
-				mock(ResultPartitionProvider.class),
-				mock(TaskEventDispatcher.class));
+        {
+            // Client event loop group
+            Bootstrap boostrap = connectionManager.getClient().getBootstrap();
+            EventLoopGroup group = boostrap.config().group();
 
-		assertEquals(numberOfSlots, connectionManager.getBufferPool().getNumberOfArenas());
+            Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
+            f.setAccessible(true);
+            Object[] eventExecutors = (Object[]) f.get(group);
 
-		{
-			// Client event loop group
-			Bootstrap boostrap = connectionManager.getClient().getBootstrap();
-			EventLoopGroup group = boostrap.group();
+            assertEquals(numberOfSlots, eventExecutors.length);
+        }
 
-			Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
-			f.setAccessible(true);
-			Object[] eventExecutors = (Object[]) f.get(group);
+        {
+            // Server event loop group
+            ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
+            EventLoopGroup group = bootstrap.config().group();
 
-			assertEquals(numberOfSlots, eventExecutors.length);
-		}
+            Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
+            f.setAccessible(true);
+            Object[] eventExecutors = (Object[]) f.get(group);
 
-		{
-			// Server event loop group
-			ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
-			EventLoopGroup group = bootstrap.group();
+            assertEquals(numberOfSlots, eventExecutors.length);
+        }
 
-			Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
-			f.setAccessible(true);
-			Object[] eventExecutors = (Object[]) f.get(group);
+        {
+            // Server child event loop group
+            ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
+            EventLoopGroup group = bootstrap.childGroup();
 
-			assertEquals(numberOfSlots, eventExecutors.length);
-		}
+            Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
+            f.setAccessible(true);
+            Object[] eventExecutors = (Object[]) f.get(group);
 
-		{
-			// Server child event loop group
-			ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
-			EventLoopGroup group = bootstrap.childGroup();
+            assertEquals(numberOfSlots, eventExecutors.length);
+        }
+    }
 
-			Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
-			f.setAccessible(true);
-			Object[] eventExecutors = (Object[]) f.get(group);
+    /** Tests that the number of arenas and threads can be configured manually. */
+    @Test
+    public void testManualConfiguration() throws Exception {
+        // Expected numbers
+        int numberOfArenas = 1;
+        int numberOfClientThreads = 3;
+        int numberOfServerThreads = 4;
 
-			assertEquals(numberOfSlots, eventExecutors.length);
-		}
-	}
+        // Expected number of threads
+        Configuration flinkConfig = new Configuration();
+        flinkConfig.setInteger(NettyShuffleEnvironmentOptions.NUM_ARENAS, numberOfArenas);
+        flinkConfig.setInteger(NettyShuffleEnvironmentOptions.NUM_THREADS_CLIENT, 3);
+        flinkConfig.setInteger(NettyShuffleEnvironmentOptions.NUM_THREADS_SERVER, 4);
 
-	/**
-	 * Tests that the number of arenas and threads can be configured manually.
-	 */
-	@Test
-	public void testManualConfiguration() throws Exception {
-		// Expected numbers
-		int numberOfArenas = 1;
-		int numberOfClientThreads = 3;
-		int numberOfServerThreads = 4;
+        NettyConnectionManager connectionManager;
+        {
+            NettyConfig config =
+                    new NettyConfig(InetAddress.getLocalHost(), 0, 1024, 1337, flinkConfig);
 
-		// Expected number of threads
-		Configuration flinkConfig = new Configuration();
-		flinkConfig.setInteger(NettyConfig.NUM_ARENAS, numberOfArenas);
-		flinkConfig.setInteger(NettyConfig.NUM_THREADS_CLIENT, 3);
-		flinkConfig.setInteger(NettyConfig.NUM_THREADS_SERVER, 4);
+            connectionManager = createNettyConnectionManager(config);
+            connectionManager.start();
 
-		NettyConfig config = new NettyConfig(
-				InetAddress.getLocalHost(),
-				NetUtils.getAvailablePort(),
-				1024,
-				1337,
-				flinkConfig);
+            assertEquals(numberOfArenas, connectionManager.getBufferPool().getNumberOfArenas());
+        }
+        assertNotNull(
+                "connectionManager is null due to fail to get a free port", connectionManager);
 
-		NettyConnectionManager connectionManager = new NettyConnectionManager(config);
+        {
+            // Client event loop group
+            Bootstrap boostrap = connectionManager.getClient().getBootstrap();
+            EventLoopGroup group = boostrap.config().group();
 
-		connectionManager.start(
-				mock(ResultPartitionProvider.class),
-				mock(TaskEventDispatcher.class));
+            Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
+            f.setAccessible(true);
+            Object[] eventExecutors = (Object[]) f.get(group);
 
-		assertEquals(numberOfArenas, connectionManager.getBufferPool().getNumberOfArenas());
+            assertEquals(numberOfClientThreads, eventExecutors.length);
+        }
 
-		{
-			// Client event loop group
-			Bootstrap boostrap = connectionManager.getClient().getBootstrap();
-			EventLoopGroup group = boostrap.group();
+        {
+            // Server event loop group
+            ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
+            EventLoopGroup group = bootstrap.config().group();
 
-			Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
-			f.setAccessible(true);
-			Object[] eventExecutors = (Object[]) f.get(group);
+            Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
+            f.setAccessible(true);
+            Object[] eventExecutors = (Object[]) f.get(group);
 
-			assertEquals(numberOfClientThreads, eventExecutors.length);
-		}
+            assertEquals(numberOfServerThreads, eventExecutors.length);
+        }
 
-		{
-			// Server event loop group
-			ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
-			EventLoopGroup group = bootstrap.group();
+        {
+            // Server child event loop group
+            ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
+            EventLoopGroup group = bootstrap.childGroup();
 
-			Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
-			f.setAccessible(true);
-			Object[] eventExecutors = (Object[]) f.get(group);
+            Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
+            f.setAccessible(true);
+            Object[] eventExecutors = (Object[]) f.get(group);
 
-			assertEquals(numberOfServerThreads, eventExecutors.length);
-		}
+            assertEquals(numberOfServerThreads, eventExecutors.length);
+        }
+    }
 
-		{
-			// Server child event loop group
-			ServerBootstrap bootstrap = connectionManager.getServer().getBootstrap();
-			EventLoopGroup group = bootstrap.childGroup();
-
-			Field f = group.getClass().getSuperclass().getSuperclass().getDeclaredField("children");
-			f.setAccessible(true);
-			Object[] eventExecutors = (Object[]) f.get(group);
-
-			assertEquals(numberOfServerThreads, eventExecutors.length);
-		}
-	}
-
+    private NettyConnectionManager createNettyConnectionManager(NettyConfig config) {
+        return new NettyConnectionManager(
+                new ResultPartitionManager(), new TaskEventDispatcher(), config, 1, true);
+    }
 }

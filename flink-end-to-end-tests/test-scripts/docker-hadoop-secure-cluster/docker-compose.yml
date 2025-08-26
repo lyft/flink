@@ -23,9 +23,10 @@ networks:
 
 services:
   kdc:
+    build: kdc
     container_name: "kdc"
     hostname: kdc.kerberos.com
-    image: sequenceiq/kerberos
+    image: flink/test-kdc:latest
     networks:
       - docker-hadoop-cluster-network
     environment:
@@ -33,7 +34,8 @@ services:
       DOMAIN_REALM: kdc.kerberos.com
 
   master:
-    image: ${DOCKER_HADOOP_IMAGE_NAME:-flink/docker-hadoop-secure-cluster:latest}
+    build: hadoop
+    image: ${DOCKER_HADOOP_IMAGE_NAME:-flink/test-hadoop:latest}
     command: master
     depends_on:
       - kdc
@@ -45,28 +47,30 @@ services:
       KRB_REALM: EXAMPLE.COM
       DOMAIN_REALM: kdc.kerberos.com
 
-  slave1:
-    image: ${DOCKER_HADOOP_IMAGE_NAME:-flink/docker-hadoop-secure-cluster:latest}
+  worker1:
+    build: hadoop
+    image: ${DOCKER_HADOOP_IMAGE_NAME:-flink/test-hadoop:latest}
     command: worker
     depends_on:
       - kdc
       - master
-    container_name: "slave1"
-    hostname: slave1.docker-hadoop-cluster-network
+    container_name: "worker1"
+    hostname: worker1.docker-hadoop-cluster-network
     networks:
       - docker-hadoop-cluster-network
     environment:
       KRB_REALM: EXAMPLE.COM
       DOMAIN_REALM: kdc.kerberos.com
 
-  slave2:
-    image: ${DOCKER_HADOOP_IMAGE_NAME:-flink/docker-hadoop-secure-cluster:latest}
+  worker2:
+    build: hadoop
+    image: ${DOCKER_HADOOP_IMAGE_NAME:-flink/test-hadoop:latest}
     command: worker
     depends_on:
       - kdc
       - master
-    container_name: "slave2"
-    hostname: slave2.docker-hadoop-cluster-network
+    container_name: "worker2"
+    hostname: worker2.docker-hadoop-cluster-network
     networks:
       - docker-hadoop-cluster-network
     environment:

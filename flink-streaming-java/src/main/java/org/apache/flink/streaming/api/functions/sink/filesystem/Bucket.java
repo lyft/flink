@@ -19,307 +19,458 @@
 package org.apache.flink.streaming.api.functions.sink.filesystem;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.core.fs.RecoverableWriter;
-import org.apache.flink.util.Preconditions;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
+
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.TreeMap;
+
+import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * A bucket is the directory organization of the output of the {@link StreamingFileSink}.
  *
- * <p>For each incoming element in the {@code StreamingFileSink}, the user-specified
- * {@link BucketAssigner} is queried to see in which bucket this element should be written to.
+ * <p>For each incoming element in the {@code StreamingFileSink}, the user-specified {@link
+ * BucketAssigner} is queried to see in which bucket this element should be written to.
  */
 @Internal
 public class Bucket<IN, BucketID> {
 
-	private static final Logger LOG = LoggerFactory.getLogger(Bucket.class);
+    private static final Logger LOG = LoggerFactory.getLogger(Bucket.class);
 
-	private static final String PART_PREFIX = "part";
+    private final BucketID bucketId;
 
-	private final BucketID bucketId;
+    private final Path bucketPath;
 
-	private final Path bucketPath;
+    private final int subtaskIndex;
 
-	private final int subtaskIndex;
+    private final BucketWriter<IN, BucketID> bucketWriter;
 
-	private final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory;
+    private final RollingPolicy<IN, BucketID> rollingPolicy;
 
-	private final RecoverableWriter fsWriter;
+    private final NavigableMap<Long, InProgressFileWriter.InProgressFileRecoverable>
+            inProgressFileRecoverablesPerCheckpoint;
 
-	private final RollingPolicy<IN, BucketID> rollingPolicy;
+    private final NavigableMap<Long, List<InProgressFileWriter.PendingFileRecoverable>>
+            pendingFileRecoverablesPerCheckpoint;
 
-	private final Map<Long, List<RecoverableWriter.CommitRecoverable>> pendingPartsPerCheckpoint = new HashMap<>();
+    private final OutputFileConfig outputFileConfig;
 
-	private long partCounter;
+    @Nullable private final FileLifeCycleListener<BucketID> fileListener;
 
-	private PartFileWriter<IN, BucketID> inProgressPart;
+    private long partCounter;
 
-	private List<RecoverableWriter.CommitRecoverable> pendingPartsForCurrentCheckpoint;
+    @Nullable private InProgressFileWriter<IN, BucketID> inProgressPart;
 
-	/**
-	 * Constructor to create a new empty bucket.
-	 */
-	private Bucket(
-			final RecoverableWriter fsWriter,
-			final int subtaskIndex,
-			final BucketID bucketId,
-			final Path bucketPath,
-			final long initialPartCounter,
-			final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory,
-			final RollingPolicy<IN, BucketID> rollingPolicy) {
+    private List<InProgressFileWriter.PendingFileRecoverable>
+            pendingFileRecoverablesForCurrentCheckpoint;
 
-		this.fsWriter = Preconditions.checkNotNull(fsWriter);
-		this.subtaskIndex = subtaskIndex;
-		this.bucketId = Preconditions.checkNotNull(bucketId);
-		this.bucketPath = Preconditions.checkNotNull(bucketPath);
-		this.partCounter = initialPartCounter;
-		this.partFileFactory = Preconditions.checkNotNull(partFileFactory);
-		this.rollingPolicy = Preconditions.checkNotNull(rollingPolicy);
+    /** Constructor to create a new empty bucket. */
+    private Bucket(
+            final int subtaskIndex,
+            final BucketID bucketId,
+            final Path bucketPath,
+            final long initialPartCounter,
+            final BucketWriter<IN, BucketID> bucketWriter,
+            final RollingPolicy<IN, BucketID> rollingPolicy,
+            @Nullable final FileLifeCycleListener<BucketID> fileListener,
+            final OutputFileConfig outputFileConfig) {
+        this.subtaskIndex = subtaskIndex;
+        this.bucketId = checkNotNull(bucketId);
+        this.bucketPath = checkNotNull(bucketPath);
+        this.partCounter = initialPartCounter;
+        this.bucketWriter = checkNotNull(bucketWriter);
+        this.rollingPolicy = checkNotNull(rollingPolicy);
+        this.fileListener = fileListener;
 
-		this.pendingPartsForCurrentCheckpoint = new ArrayList<>();
-	}
+        this.pendingFileRecoverablesForCurrentCheckpoint = new ArrayList<>();
+        this.pendingFileRecoverablesPerCheckpoint = new TreeMap<>();
+        this.inProgressFileRecoverablesPerCheckpoint = new TreeMap<>();
 
-	/**
-	 * Constructor to restore a bucket from checkpointed state.
-	 */
-	private Bucket(
-			final RecoverableWriter fsWriter,
-			final int subtaskIndex,
-			final long initialPartCounter,
-			final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory,
-			final RollingPolicy<IN, BucketID> rollingPolicy,
-			final BucketState<BucketID> bucketState) throws IOException {
+        this.outputFileConfig = checkNotNull(outputFileConfig);
+    }
 
-		this(
-				fsWriter,
-				subtaskIndex,
-				bucketState.getBucketId(),
-				bucketState.getBucketPath(),
-				initialPartCounter,
-				partFileFactory,
-				rollingPolicy);
+    /** Constructor to restore a bucket from checkpointed state. */
+    private Bucket(
+            final int subtaskIndex,
+            final long initialPartCounter,
+            final BucketWriter<IN, BucketID> partFileFactory,
+            final RollingPolicy<IN, BucketID> rollingPolicy,
+            final BucketState<BucketID> bucketState,
+            @Nullable final FileLifeCycleListener<BucketID> fileListener,
+            final OutputFileConfig outputFileConfig)
+            throws IOException {
 
-		restoreInProgressFile(bucketState);
-		commitRecoveredPendingFiles(bucketState);
-	}
+        this(
+                subtaskIndex,
+                bucketState.getBucketId(),
+                bucketState.getBucketPath(),
+                initialPartCounter,
+                partFileFactory,
+                rollingPolicy,
+                fileListener,
+                outputFileConfig);
 
-	private void restoreInProgressFile(final BucketState<BucketID> state) throws IOException {
+        restoreInProgressFile(bucketState);
+        commitRecoveredPendingFiles(bucketState);
+    }
 
-		// we try to resume the previous in-progress file
-		if (state.hasInProgressResumableFile()) {
-			final RecoverableWriter.ResumeRecoverable resumable = state.getInProgressResumableFile();
-			inProgressPart = partFileFactory.resumeFrom(
-					bucketId, fsWriter, resumable, state.getInProgressFileCreationTime());
-		}
-	}
+    private void restoreInProgressFile(final BucketState<BucketID> state) throws IOException {
+        if (!state.hasInProgressFileRecoverable()) {
+            return;
+        }
 
-	private void commitRecoveredPendingFiles(final BucketState<BucketID> state) throws IOException {
+        // we try to resume the previous in-progress file
+        final InProgressFileWriter.InProgressFileRecoverable inProgressFileRecoverable =
+                state.getInProgressFileRecoverable();
 
-		// we commit pending files for checkpoints that precess the last successful one, from which we are recovering
-		for (List<RecoverableWriter.CommitRecoverable> committables: state.getCommittableFilesPerCheckpoint().values()) {
-			for (RecoverableWriter.CommitRecoverable committable: committables) {
-				fsWriter.recoverForCommit(committable).commitAfterRecovery();
-			}
-		}
-	}
+        if (bucketWriter.getProperties().supportsResume()) {
+            inProgressPart =
+                    bucketWriter.resumeInProgressFileFrom(
+                            bucketId,
+                            inProgressFileRecoverable,
+                            state.getInProgressFileCreationTime());
+            inProgressFileRecoverablesPerCheckpoint.put(Long.MIN_VALUE, inProgressFileRecoverable);
+        } else {
+            // if the writer does not support resume, then we close the
+            // in-progress part and commit it, as done in the case of pending files.
+            bucketWriter.recoverPendingFile(inProgressFileRecoverable).commitAfterRecovery();
+        }
+    }
 
-	BucketID getBucketId() {
-		return bucketId;
-	}
+    private void commitRecoveredPendingFiles(final BucketState<BucketID> state) throws IOException {
 
-	Path getBucketPath() {
-		return bucketPath;
-	}
+        // we commit pending files for checkpoints that precess the last successful one, from which
+        // we are recovering
+        for (List<InProgressFileWriter.PendingFileRecoverable> pendingFileRecoverables :
+                state.getPendingFileRecoverablesPerCheckpoint().values()) {
+            for (InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable :
+                    pendingFileRecoverables) {
+                bucketWriter.recoverPendingFile(pendingFileRecoverable).commitAfterRecovery();
+            }
+        }
+    }
 
-	long getPartCounter() {
-		return partCounter;
-	}
+    public BucketID getBucketId() {
+        return bucketId;
+    }
 
-	boolean isActive() {
-		return inProgressPart != null || !pendingPartsForCurrentCheckpoint.isEmpty() || !pendingPartsPerCheckpoint.isEmpty();
-	}
+    public Path getBucketPath() {
+        return bucketPath;
+    }
 
-	void merge(final Bucket<IN, BucketID> bucket) throws IOException {
-		Preconditions.checkNotNull(bucket);
-		Preconditions.checkState(Objects.equals(bucket.bucketPath, bucketPath));
+    public long getPartCounter() {
+        return partCounter;
+    }
 
-		// There should be no pending files in the "to-merge" states.
-		// The reason is that:
-		// 1) the pendingPartsForCurrentCheckpoint is emptied whenever we take a snapshot (see prepareBucketForCheckpointing()).
-		//    So a snapshot, including the one we are recovering from, will never contain such files.
-		// 2) the files in pendingPartsPerCheckpoint are committed upon recovery (see commitRecoveredPendingFiles()).
+    boolean isActive() {
+        return inProgressPart != null
+                || !pendingFileRecoverablesForCurrentCheckpoint.isEmpty()
+                || !pendingFileRecoverablesPerCheckpoint.isEmpty();
+    }
 
-		Preconditions.checkState(bucket.pendingPartsForCurrentCheckpoint.isEmpty());
-		Preconditions.checkState(bucket.pendingPartsPerCheckpoint.isEmpty());
+    void merge(final Bucket<IN, BucketID> bucket) throws IOException {
+        checkNotNull(bucket);
+        checkState(Objects.equals(bucket.bucketPath, bucketPath));
 
-		RecoverableWriter.CommitRecoverable committable = bucket.closePartFile();
-		if (committable != null) {
-			pendingPartsForCurrentCheckpoint.add(committable);
-		}
+        // There should be no pending files in the "to-merge" states.
+        // The reason is that:
+        // 1) the pendingFileRecoverablesForCurrentCheckpoint is emptied whenever we take a
+        // Recoverable (see prepareBucketForCheckpointing()).
+        //    So a Recoverable, including the one we are recovering from, will never contain such
+        // files.
+        // 2) the files in pendingFileRecoverablesPerCheckpoint are committed upon recovery (see
+        // commitRecoveredPendingFiles()).
 
-		if (LOG.isDebugEnabled()) {
-			LOG.debug("Subtask {} merging buckets for bucket id={}", subtaskIndex, bucketId);
-		}
-	}
+        checkState(bucket.pendingFileRecoverablesForCurrentCheckpoint.isEmpty());
+        checkState(bucket.pendingFileRecoverablesPerCheckpoint.isEmpty());
 
-	void write(IN element, long currentTime) throws IOException {
-		if (inProgressPart == null || rollingPolicy.shouldRollOnEvent(inProgressPart, element)) {
+        InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable = bucket.closePartFile();
+        if (pendingFileRecoverable != null) {
+            pendingFileRecoverablesForCurrentCheckpoint.add(pendingFileRecoverable);
+        }
 
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("Subtask {} closing in-progress part file for bucket id={} due to element {}.",
-						subtaskIndex, bucketId, element);
-			}
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Subtask {} merging buckets for bucket id={}", subtaskIndex, bucketId);
+        }
+    }
 
-			rollPartFile(currentTime);
-		}
-		inProgressPart.write(element, currentTime);
-	}
+    void write(IN element, long currentTime) throws IOException {
+        if (inProgressPart == null || rollingPolicy.shouldRollOnEvent(inProgressPart, element)) {
 
-	private void rollPartFile(final long currentTime) throws IOException {
-		closePartFile();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(
+                        "Subtask {} closing in-progress part file for bucket id={} due to element {}.",
+                        subtaskIndex,
+                        bucketId,
+                        element);
+            }
 
-		final Path partFilePath = assembleNewPartPath();
-		inProgressPart = partFileFactory.openNew(bucketId, fsWriter, partFilePath, currentTime);
+            inProgressPart = rollPartFile(currentTime);
+        }
+        inProgressPart.write(element, currentTime);
+    }
 
-		if (LOG.isDebugEnabled()) {
-			LOG.debug("Subtask {} opening new part file \"{}\" for bucket id={}.",
-					subtaskIndex, partFilePath.getName(), bucketId);
-		}
+    private InProgressFileWriter<IN, BucketID> rollPartFile(final long currentTime)
+            throws IOException {
+        closePartFile();
 
-		partCounter++;
-	}
+        final Path partFilePath = assembleNewPartPath();
 
-	private Path assembleNewPartPath() {
-		return new Path(bucketPath, PART_PREFIX + '-' + subtaskIndex + '-' + partCounter);
-	}
+        if (fileListener != null) {
+            fileListener.onPartFileOpened(bucketId, partFilePath);
+        }
 
-	private RecoverableWriter.CommitRecoverable closePartFile() throws IOException {
-		RecoverableWriter.CommitRecoverable committable = null;
-		if (inProgressPart != null) {
-			committable = inProgressPart.closeForCommit();
-			pendingPartsForCurrentCheckpoint.add(committable);
-			inProgressPart = null;
-		}
-		return committable;
-	}
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                    "Subtask {} opening new part file \"{}\" for bucket id={}.",
+                    subtaskIndex,
+                    partFilePath.getName(),
+                    bucketId);
+        }
 
-	void disposePartFile() {
-		if (inProgressPart != null) {
-			inProgressPart.dispose();
-		}
-	}
+        return bucketWriter.openNewInProgressFile(bucketId, partFilePath, currentTime);
+    }
 
-	BucketState<BucketID> onReceptionOfCheckpoint(long checkpointId) throws IOException {
-		prepareBucketForCheckpointing(checkpointId);
+    /** Constructor a new PartPath and increment the partCounter. */
+    private Path assembleNewPartPath() {
+        long currentPartCounter = partCounter++;
+        return new Path(
+                bucketPath,
+                outputFileConfig.getPartPrefix()
+                        + '-'
+                        + subtaskIndex
+                        + '-'
+                        + currentPartCounter
+                        + outputFileConfig.getPartSuffix());
+    }
 
-		RecoverableWriter.ResumeRecoverable inProgressResumable = null;
-		long inProgressFileCreationTime = Long.MAX_VALUE;
+    InProgressFileWriter.PendingFileRecoverable closePartFile() throws IOException {
+        InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable = null;
+        if (inProgressPart != null) {
+            pendingFileRecoverable = inProgressPart.closeForCommit();
+            pendingFileRecoverablesForCurrentCheckpoint.add(pendingFileRecoverable);
+            inProgressPart = null;
+        }
+        return pendingFileRecoverable;
+    }
 
-		if (inProgressPart != null) {
-			inProgressResumable = inProgressPart.persist();
-			inProgressFileCreationTime = inProgressPart.getCreationTime();
-		}
+    void disposePartFile() {
+        if (inProgressPart != null) {
+            inProgressPart.dispose();
+        }
+    }
 
-		return new BucketState<>(bucketId, bucketPath, inProgressFileCreationTime, inProgressResumable, pendingPartsPerCheckpoint);
-	}
+    BucketState<BucketID> onReceptionOfCheckpoint(long checkpointId) throws IOException {
+        prepareBucketForCheckpointing(checkpointId);
 
-	private void prepareBucketForCheckpointing(long checkpointId) throws IOException {
-		if (inProgressPart != null && rollingPolicy.shouldRollOnCheckpoint(inProgressPart)) {
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("Subtask {} closing in-progress part file for bucket id={} on checkpoint.", subtaskIndex, bucketId);
-			}
-			closePartFile();
-		}
+        InProgressFileWriter.InProgressFileRecoverable inProgressFileRecoverable = null;
+        long inProgressFileCreationTime = Long.MAX_VALUE;
 
-		if (!pendingPartsForCurrentCheckpoint.isEmpty()) {
-			pendingPartsPerCheckpoint.put(checkpointId, pendingPartsForCurrentCheckpoint);
-			pendingPartsForCurrentCheckpoint = new ArrayList<>();
-		}
-	}
+        if (inProgressPart != null) {
+            inProgressFileRecoverable = inProgressPart.persist();
+            inProgressFileCreationTime = inProgressPart.getCreationTime();
+            this.inProgressFileRecoverablesPerCheckpoint.put(
+                    checkpointId, inProgressFileRecoverable);
+        }
 
-	void onSuccessfulCompletionOfCheckpoint(long checkpointId) throws IOException {
-		Preconditions.checkNotNull(fsWriter);
+        return new BucketState<>(
+                bucketId,
+                bucketPath,
+                inProgressFileCreationTime,
+                inProgressFileRecoverable,
+                pendingFileRecoverablesPerCheckpoint);
+    }
 
-		Iterator<Map.Entry<Long, List<RecoverableWriter.CommitRecoverable>>> it =
-				pendingPartsPerCheckpoint.entrySet().iterator();
+    private void prepareBucketForCheckpointing(long checkpointId) throws IOException {
+        if (inProgressPart != null && rollingPolicy.shouldRollOnCheckpoint(inProgressPart)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(
+                        "Subtask {} closing in-progress part file for bucket id={} on checkpoint.",
+                        subtaskIndex,
+                        bucketId);
+            }
+            closePartFile();
+        }
 
-		while (it.hasNext()) {
-			Map.Entry<Long, List<RecoverableWriter.CommitRecoverable>> entry = it.next();
+        if (!pendingFileRecoverablesForCurrentCheckpoint.isEmpty()) {
+            pendingFileRecoverablesPerCheckpoint.put(
+                    checkpointId, pendingFileRecoverablesForCurrentCheckpoint);
+            pendingFileRecoverablesForCurrentCheckpoint = new ArrayList<>();
+        }
+    }
 
-			if (entry.getKey() <= checkpointId) {
-				for (RecoverableWriter.CommitRecoverable committable : entry.getValue()) {
-					fsWriter.recoverForCommit(committable).commit();
-				}
-				it.remove();
-			}
-		}
-	}
+    void onSuccessfulCompletionOfCheckpoint(long checkpointId) throws IOException {
+        checkNotNull(bucketWriter);
 
-	void onProcessingTime(long timestamp) throws IOException {
-		if (inProgressPart != null && rollingPolicy.shouldRollOnProcessingTime(inProgressPart, timestamp)) {
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("Subtask {} closing in-progress part file for bucket id={} due to processing time rolling policy " +
-						"(in-progress file created @ {}, last updated @ {} and current time is {}).",
-						subtaskIndex, bucketId, inProgressPart.getCreationTime(), inProgressPart.getLastUpdateTime(), timestamp);
-			}
-			closePartFile();
-		}
-	}
+        Iterator<Map.Entry<Long, List<InProgressFileWriter.PendingFileRecoverable>>> it =
+                pendingFileRecoverablesPerCheckpoint
+                        .headMap(checkpointId, true)
+                        .entrySet()
+                        .iterator();
 
-	// --------------------------- Static Factory Methods -----------------------------
+        while (it.hasNext()) {
+            Map.Entry<Long, List<InProgressFileWriter.PendingFileRecoverable>> entry = it.next();
 
-	/**
-	 * Creates a new empty {@code Bucket}.
-	 * @param fsWriter the filesystem-specific {@link RecoverableWriter}.
-	 * @param subtaskIndex the index of the subtask creating the bucket.
-	 * @param bucketId the identifier of the bucket, as returned by the {@link BucketAssigner}.
-	 * @param bucketPath the path to where the part files for the bucket will be written to.
-	 * @param initialPartCounter the initial counter for the part files of the bucket.
-	 * @param partFileFactory the {@link PartFileWriter.PartFileFactory} the factory creating part file writers.
-	 * @param <IN> the type of input elements to the sink.
-	 * @param <BucketID> the type of the identifier of the bucket, as returned by the {@link BucketAssigner}
-	 * @return The new Bucket.
-	 */
-	static <IN, BucketID> Bucket<IN, BucketID> getNew(
-			final RecoverableWriter fsWriter,
-			final int subtaskIndex,
-			final BucketID bucketId,
-			final Path bucketPath,
-			final long initialPartCounter,
-			final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory,
-			final RollingPolicy<IN, BucketID> rollingPolicy) {
-		return new Bucket<>(fsWriter, subtaskIndex, bucketId, bucketPath, initialPartCounter, partFileFactory, rollingPolicy);
-	}
+            for (InProgressFileWriter.PendingFileRecoverable pendingFileRecoverable :
+                    entry.getValue()) {
+                bucketWriter.recoverPendingFile(pendingFileRecoverable).commit();
+            }
+            it.remove();
+        }
 
-	/**
-	 * Restores a {@code Bucket} from the state included in the provided {@link BucketState}.
-	 * @param fsWriter the filesystem-specific {@link RecoverableWriter}.
-	 * @param subtaskIndex the index of the subtask creating the bucket.
-	 * @param initialPartCounter the initial counter for the part files of the bucket.
-	 * @param partFileFactory the {@link PartFileWriter.PartFileFactory} the factory creating part file writers.
-	 * @param bucketState the initial state of the restored bucket.
-	 * @param <IN> the type of input elements to the sink.
-	 * @param <BucketID> the type of the identifier of the bucket, as returned by the {@link BucketAssigner}
-	 * @return The restored Bucket.
-	 */
-	static <IN, BucketID> Bucket<IN, BucketID> restore(
-			final RecoverableWriter fsWriter,
-			final int subtaskIndex,
-			final long initialPartCounter,
-			final PartFileWriter.PartFileFactory<IN, BucketID> partFileFactory,
-			final RollingPolicy<IN, BucketID> rollingPolicy,
-			final BucketState<BucketID> bucketState) throws IOException {
-		return new Bucket<>(fsWriter, subtaskIndex, initialPartCounter, partFileFactory, rollingPolicy, bucketState);
-	}
+        cleanupInProgressFileRecoverables(checkpointId);
+    }
+
+    private void cleanupInProgressFileRecoverables(long checkpointId) throws IOException {
+        Iterator<Map.Entry<Long, InProgressFileWriter.InProgressFileRecoverable>> it =
+                inProgressFileRecoverablesPerCheckpoint
+                        .headMap(checkpointId, false)
+                        .entrySet()
+                        .iterator();
+
+        while (it.hasNext()) {
+            final InProgressFileWriter.InProgressFileRecoverable inProgressFileRecoverable =
+                    it.next().getValue();
+
+            // this check is redundant, as we only put entries in the
+            // inProgressFileRecoverablesPerCheckpoint map
+            // list when the requiresCleanupOfInProgressFileRecoverableState() returns true, but
+            // having it makes
+            // the code more readable.
+
+            final boolean successfullyDeleted =
+                    bucketWriter.cleanupInProgressFileRecoverable(inProgressFileRecoverable);
+            if (LOG.isDebugEnabled() && successfullyDeleted) {
+                LOG.debug(
+                        "Subtask {} successfully deleted incomplete part for bucket id={}.",
+                        subtaskIndex,
+                        bucketId);
+            }
+            it.remove();
+        }
+    }
+
+    void onProcessingTime(long timestamp) throws IOException {
+        if (inProgressPart != null
+                && rollingPolicy.shouldRollOnProcessingTime(inProgressPart, timestamp)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(
+                        "Subtask {} closing in-progress part file for bucket id={} due to processing time rolling policy "
+                                + "(in-progress file created @ {}, last updated @ {} and current time is {}).",
+                        subtaskIndex,
+                        bucketId,
+                        inProgressPart.getCreationTime(),
+                        inProgressPart.getLastUpdateTime(),
+                        timestamp);
+            }
+            closePartFile();
+        }
+    }
+
+    // --------------------------- Testing Methods -----------------------------
+
+    @VisibleForTesting
+    Map<Long, List<InProgressFileWriter.PendingFileRecoverable>>
+            getPendingFileRecoverablesPerCheckpoint() {
+        return pendingFileRecoverablesPerCheckpoint;
+    }
+
+    @Nullable
+    @VisibleForTesting
+    InProgressFileWriter<IN, BucketID> getInProgressPart() {
+        return inProgressPart;
+    }
+
+    @VisibleForTesting
+    List<InProgressFileWriter.PendingFileRecoverable>
+            getPendingFileRecoverablesForCurrentCheckpoint() {
+        return pendingFileRecoverablesForCurrentCheckpoint;
+    }
+
+    // --------------------------- Static Factory Methods -----------------------------
+
+    /**
+     * Creates a new empty {@code Bucket}.
+     *
+     * @param subtaskIndex the index of the subtask creating the bucket.
+     * @param bucketId the identifier of the bucket, as returned by the {@link BucketAssigner}.
+     * @param bucketPath the path to where the part files for the bucket will be written to.
+     * @param initialPartCounter the initial counter for the part files of the bucket.
+     * @param bucketWriter the {@link BucketWriter} used to write part files in the bucket.
+     * @param rollingPolicy the policy based on which a bucket rolls its currently open part file
+     *     and opens a new one.
+     * @param fileListener the listener about the status of file.
+     * @param <IN> the type of input elements to the sink.
+     * @param <BucketID> the type of the identifier of the bucket, as returned by the {@link
+     *     BucketAssigner}
+     * @param outputFileConfig the part file configuration.
+     * @return The new Bucket.
+     */
+    static <IN, BucketID> Bucket<IN, BucketID> getNew(
+            final int subtaskIndex,
+            final BucketID bucketId,
+            final Path bucketPath,
+            final long initialPartCounter,
+            final BucketWriter<IN, BucketID> bucketWriter,
+            final RollingPolicy<IN, BucketID> rollingPolicy,
+            @Nullable final FileLifeCycleListener<BucketID> fileListener,
+            final OutputFileConfig outputFileConfig) {
+        return new Bucket<>(
+                subtaskIndex,
+                bucketId,
+                bucketPath,
+                initialPartCounter,
+                bucketWriter,
+                rollingPolicy,
+                fileListener,
+                outputFileConfig);
+    }
+
+    /**
+     * Restores a {@code Bucket} from the state included in the provided {@link BucketState}.
+     *
+     * @param subtaskIndex the index of the subtask creating the bucket.
+     * @param initialPartCounter the initial counter for the part files of the bucket.
+     * @param bucketWriter the {@link BucketWriter} used to write part files in the bucket.
+     * @param rollingPolicy the policy based on which a bucket rolls its currently open part file
+     *     and opens a new one.
+     * @param bucketState the initial state of the restored bucket.
+     * @param fileListener the listener about the status of file.
+     * @param <IN> the type of input elements to the sink.
+     * @param <BucketID> the type of the identifier of the bucket, as returned by the {@link
+     *     BucketAssigner}
+     * @param outputFileConfig the part file configuration.
+     * @return The restored Bucket.
+     */
+    static <IN, BucketID> Bucket<IN, BucketID> restore(
+            final int subtaskIndex,
+            final long initialPartCounter,
+            final BucketWriter<IN, BucketID> bucketWriter,
+            final RollingPolicy<IN, BucketID> rollingPolicy,
+            final BucketState<BucketID> bucketState,
+            @Nullable final FileLifeCycleListener<BucketID> fileListener,
+            final OutputFileConfig outputFileConfig)
+            throws IOException {
+        return new Bucket<>(
+                subtaskIndex,
+                initialPartCounter,
+                bucketWriter,
+                rollingPolicy,
+                bucketState,
+                fileListener,
+                outputFileConfig);
+    }
 }

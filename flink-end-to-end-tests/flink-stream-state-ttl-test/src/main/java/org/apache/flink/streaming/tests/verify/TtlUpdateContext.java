@@ -24,48 +24,47 @@ import java.io.Serializable;
 
 /** Contains context relevant for state update with TTL. */
 public class TtlUpdateContext<UV, GV> implements Serializable {
-	private final long timestampBeforeUpdate;
-	private final GV valueBeforeUpdate;
-	private final UV update;
-	private final GV updatedValue;
-	private final long timestampAfterUpdate;
 
-	public TtlUpdateContext(
-		long timestampBeforeUpdate,
-		GV valueBeforeUpdate, UV update, GV updatedValue,
-		long timestampAfterUpdate) {
-		this.valueBeforeUpdate = valueBeforeUpdate;
-		this.update = update;
-		this.updatedValue = updatedValue;
-		this.timestampBeforeUpdate = timestampBeforeUpdate;
-		this.timestampAfterUpdate = timestampAfterUpdate;
-	}
+    private final GV valueBeforeUpdate;
+    private final UV update;
+    private final GV valueAfterUpdate;
+    private final long timestamp;
 
-	long getTimestampBeforeUpdate() {
-		return timestampBeforeUpdate;
-	}
+    public TtlUpdateContext(GV valueBeforeUpdate, UV update, GV updatedValue, long timestamp) {
+        this.valueBeforeUpdate = valueBeforeUpdate;
+        this.update = update;
+        this.valueAfterUpdate = updatedValue;
+        this.timestamp = timestamp;
+    }
 
-	GV getValueBeforeUpdate() {
-		return valueBeforeUpdate;
-	}
+    long getTimestamp() {
+        return timestamp;
+    }
 
-	@Nonnull
-	public ValueWithTs<UV> getUpdateWithTs() {
-		return new ValueWithTs<>(update, timestampBeforeUpdate, timestampAfterUpdate);
-	}
+    GV getValueBeforeUpdate() {
+        return valueBeforeUpdate;
+    }
 
-	GV getUpdatedValue() {
-		return updatedValue;
-	}
+    @Nonnull
+    public ValueWithTs<UV> getUpdateWithTs() {
+        return new ValueWithTs<>(update, timestamp);
+    }
 
-	@Override
-	public String toString() {
-		return "TtlUpdateContext{" +
-			"timestampBeforeUpdate=" + timestampBeforeUpdate +
-			", valueBeforeUpdate=" + valueBeforeUpdate +
-			", update=" + update +
-			", updatedValue=" + updatedValue +
-			", timestampAfterUpdate=" + timestampAfterUpdate +
-			'}';
-	}
+    GV getValueAfterUpdate() {
+        return valueAfterUpdate;
+    }
+
+    @Override
+    public String toString() {
+        return "TtlUpdateContext{"
+                + "valueBeforeUpdate="
+                + valueBeforeUpdate
+                + ", update="
+                + update
+                + ", valueAfterUpdate="
+                + valueAfterUpdate
+                + ", timestamp="
+                + timestamp
+                + '}';
+    }
 }

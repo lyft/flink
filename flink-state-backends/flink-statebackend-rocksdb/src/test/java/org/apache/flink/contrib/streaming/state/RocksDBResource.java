@@ -27,133 +27,195 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
+import org.rocksdb.InfoLogLevel;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
+import org.rocksdb.Statistics;
 import org.rocksdb.WriteOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * External resource for tests that require an instance of RocksDB.
- */
+/** External resource for tests that require an instance of RocksDB. */
 public class RocksDBResource extends ExternalResource {
 
-	/** Factory for {@link DBOptions} and {@link ColumnFamilyOptions}. */
-	private final OptionsFactory optionsFactory;
+    private static final Logger LOG = LoggerFactory.getLogger(RocksDBResource.class);
 
-	/** Temporary folder that provides the working directory for the RocksDB instance. */
-	private TemporaryFolder temporaryFolder;
+    /** Factory for {@link DBOptions} and {@link ColumnFamilyOptions}. */
+    private final RocksDBOptionsFactory optionsFactory;
 
-	/** The options for the RocksDB instance. */
-	private DBOptions dbOptions;
+    private final boolean enableStatistics;
 
-	/** The options for column families created with the RocksDB instance. */
-	private ColumnFamilyOptions columnFamilyOptions;
+    /** Temporary folder that provides the working directory for the RocksDB instance. */
+    private TemporaryFolder temporaryFolder;
 
-	/** The options for writes. */
-	private WriteOptions writeOptions;
+    /** The options for the RocksDB instance. */
+    private DBOptions dbOptions;
 
-	/** The options for reads. */
-	private ReadOptions readOptions;
+    /** The options for column families created with the RocksDB instance. */
+    private ColumnFamilyOptions columnFamilyOptions;
 
-	/** The RocksDB instance object. */
-	private RocksDB rocksDB;
+    /** The options for writes. */
+    private WriteOptions writeOptions;
 
-	/** List of all column families that have been created with the RocksDB instance. */
-	private List<ColumnFamilyHandle> columnFamilyHandles;
+    /** The options for reads. */
+    private ReadOptions readOptions;
 
-	/** Wrapper for batched writes to the RocksDB instance. */
-	private RocksDBWriteBatchWrapper batchWrapper;
+    /** The RocksDB instance object. */
+    private RocksDB rocksDB;
 
-	public RocksDBResource() {
-		this(new OptionsFactory() {
-			@Override
-			public DBOptions createDBOptions(DBOptions currentOptions) {
-				return PredefinedOptions.FLASH_SSD_OPTIMIZED.createDBOptions();
-			}
+    /** List of all column families that have been created with the RocksDB instance. */
+    private List<ColumnFamilyHandle> columnFamilyHandles;
 
-			@Override
-			public ColumnFamilyOptions createColumnOptions(ColumnFamilyOptions currentOptions) {
-				return PredefinedOptions.FLASH_SSD_OPTIMIZED.createColumnOptions();
-			}
-		});
-	}
+    /** Wrapper for batched writes to the RocksDB instance. */
+    private RocksDBWriteBatchWrapper batchWrapper;
 
-	public RocksDBResource(@Nonnull OptionsFactory optionsFactory) {
-		this.optionsFactory = optionsFactory;
-	}
+    /** Resources to close. */
+    private ArrayList<AutoCloseable> handlesToClose = new ArrayList<>();
 
-	public ColumnFamilyHandle getDefaultColumnFamily() {
-		return columnFamilyHandles.get(0);
-	}
+    public RocksDBResource() {
+        this(false);
+    }
 
-	public WriteOptions getWriteOptions() {
-		return writeOptions;
-	}
+    public RocksDBResource(boolean enableStatistics) {
+        this(
+                new RocksDBOptionsFactory() {
+                    private static final long serialVersionUID = 1L;
 
-	public RocksDB getRocksDB() {
-		return rocksDB;
-	}
+                    @Override
+                    public DBOptions createDBOptions(
+                            DBOptions currentOptions, Collection<AutoCloseable> handlesToClose) {
+                        // close it before reuse the reference.
+                        try {
+                            currentOptions.close();
+                        } catch (Exception e) {
+                            LOG.error("Close previous DBOptions's instance failed.", e);
+                        }
 
-	public ReadOptions getReadOptions() {
-		return readOptions;
-	}
+                        return new DBOptions()
+                                .setMaxBackgroundJobs(4)
+                                .setUseFsync(false)
+                                .setMaxOpenFiles(-1)
+                                .setInfoLogLevel(InfoLogLevel.HEADER_LEVEL)
+                                .setStatsDumpPeriodSec(0);
+                    }
 
-	public RocksDBWriteBatchWrapper getBatchWrapper() {
-		return batchWrapper;
-	}
+                    @Override
+                    public ColumnFamilyOptions createColumnOptions(
+                            ColumnFamilyOptions currentOptions,
+                            Collection<AutoCloseable> handlesToClose) {
+                        // close it before reuse the reference.
+                        try {
+                            currentOptions.close();
+                        } catch (Exception e) {
+                            LOG.error("Close previous ColumnOptions's instance failed.", e);
+                        }
 
-	/**
-	 * Creates and returns a new column family with the given name.
-	 */
-	public ColumnFamilyHandle createNewColumnFamily(String name) {
-		try {
-			final ColumnFamilyHandle columnFamily = rocksDB.createColumnFamily(
-				new ColumnFamilyDescriptor(name.getBytes(), columnFamilyOptions));
-			columnFamilyHandles.add(columnFamily);
-			return columnFamily;
-		} catch (Exception ex) {
-			throw new FlinkRuntimeException("Could not create column family.", ex);
-		}
-	}
+                        return new ColumnFamilyOptions().optimizeForPointLookup(40960);
+                    }
+                },
+                enableStatistics);
+    }
 
-	@Override
-	protected void before() throws Throwable {
-		this.temporaryFolder = new TemporaryFolder();
-		this.temporaryFolder.create();
-		final File rocksFolder = temporaryFolder.newFolder();
-		this.dbOptions = optionsFactory.createDBOptions(PredefinedOptions.DEFAULT.createDBOptions()).
-			setCreateIfMissing(true);
-		this.columnFamilyOptions = optionsFactory.createColumnOptions(PredefinedOptions.DEFAULT.createColumnOptions());
-		this.writeOptions = new WriteOptions();
-		this.writeOptions.disableWAL();
-		this.readOptions = new ReadOptions();
-		this.columnFamilyHandles = new ArrayList<>(1);
-		this.rocksDB = RocksDB.open(
-			dbOptions,
-			rocksFolder.getAbsolutePath(),
-			Collections.singletonList(new ColumnFamilyDescriptor("default".getBytes(), columnFamilyOptions)),
-			columnFamilyHandles);
-		this.batchWrapper = new RocksDBWriteBatchWrapper(rocksDB, writeOptions);
-	}
+    public RocksDBResource(
+            @Nonnull RocksDBOptionsFactory optionsFactory, boolean enableStatistics) {
+        this.optionsFactory = optionsFactory;
+        this.enableStatistics = enableStatistics;
+    }
 
-	@Override
-	protected void after() {
-		// destruct in reversed order of creation.
-		IOUtils.closeQuietly(this.batchWrapper);
-		for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
-			IOUtils.closeQuietly(columnFamilyHandle);
-		}
-		IOUtils.closeQuietly(this.rocksDB);
-		IOUtils.closeQuietly(this.readOptions);
-		IOUtils.closeQuietly(this.writeOptions);
-		IOUtils.closeQuietly(this.columnFamilyOptions);
-		IOUtils.closeQuietly(this.dbOptions);
-		temporaryFolder.delete();
-	}
+    public ColumnFamilyHandle getDefaultColumnFamily() {
+        return columnFamilyHandles.get(0);
+    }
+
+    public WriteOptions getWriteOptions() {
+        return writeOptions;
+    }
+
+    public RocksDB getRocksDB() {
+        return rocksDB;
+    }
+
+    public ReadOptions getReadOptions() {
+        return readOptions;
+    }
+
+    public DBOptions getDbOptions() {
+        return dbOptions;
+    }
+
+    public RocksDBWriteBatchWrapper getBatchWrapper() {
+        return batchWrapper;
+    }
+
+    /** Creates and returns a new column family with the given name. */
+    public ColumnFamilyHandle createNewColumnFamily(String name) {
+        try {
+            final ColumnFamilyHandle columnFamily =
+                    rocksDB.createColumnFamily(
+                            new ColumnFamilyDescriptor(name.getBytes(), columnFamilyOptions));
+            columnFamilyHandles.add(columnFamily);
+            return columnFamily;
+        } catch (Exception ex) {
+            throw new FlinkRuntimeException("Could not create column family.", ex);
+        }
+    }
+
+    @Override
+    protected void before() throws Throwable {
+        this.temporaryFolder = new TemporaryFolder();
+        this.temporaryFolder.create();
+        final File rocksFolder = temporaryFolder.newFolder();
+        this.dbOptions =
+                optionsFactory
+                        .createDBOptions(
+                                new DBOptions()
+                                        .setUseFsync(false)
+                                        .setInfoLogLevel(InfoLogLevel.HEADER_LEVEL)
+                                        .setStatsDumpPeriodSec(0),
+                                handlesToClose)
+                        .setCreateIfMissing(true);
+        if (enableStatistics) {
+            Statistics statistics = new Statistics();
+            dbOptions.setStatistics(statistics);
+            handlesToClose.add(statistics);
+        }
+        this.columnFamilyOptions =
+                optionsFactory.createColumnOptions(new ColumnFamilyOptions(), handlesToClose);
+        this.writeOptions = new WriteOptions();
+        this.writeOptions.disableWAL();
+        this.readOptions = new ReadOptions();
+        this.columnFamilyHandles = new ArrayList<>(1);
+        this.rocksDB =
+                RocksDB.open(
+                        dbOptions,
+                        rocksFolder.getAbsolutePath(),
+                        Collections.singletonList(
+                                new ColumnFamilyDescriptor(
+                                        "default".getBytes(), columnFamilyOptions)),
+                        columnFamilyHandles);
+        this.batchWrapper = new RocksDBWriteBatchWrapper(rocksDB, writeOptions);
+    }
+
+    @Override
+    protected void after() {
+        // destruct in reversed order of creation.
+        IOUtils.closeQuietly(this.batchWrapper);
+        for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandles) {
+            IOUtils.closeQuietly(columnFamilyHandle);
+        }
+        IOUtils.closeQuietly(this.rocksDB);
+        IOUtils.closeQuietly(this.readOptions);
+        IOUtils.closeQuietly(this.writeOptions);
+        IOUtils.closeQuietly(this.columnFamilyOptions);
+        IOUtils.closeQuietly(this.dbOptions);
+        handlesToClose.forEach(IOUtils::closeQuietly);
+        temporaryFolder.delete();
+    }
 }

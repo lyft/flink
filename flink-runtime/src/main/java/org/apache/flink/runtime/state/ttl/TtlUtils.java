@@ -18,22 +18,34 @@
 
 package org.apache.flink.runtime.state.ttl;
 
+import javax.annotation.Nullable;
+
 /** Common functions related to State TTL. */
-class TtlUtils {
-	static <V> boolean expired(TtlValue<V> ttlValue, long ttl, TtlTimeProvider timeProvider) {
-		return ttlValue != null && expired(ttlValue.getLastAccessTimestamp(), ttl, timeProvider);
-	}
+public class TtlUtils {
+    static <V> boolean expired(
+            @Nullable TtlValue<V> ttlValue, long ttl, TtlTimeProvider timeProvider) {
+        return expired(ttlValue, ttl, timeProvider.currentTimestamp());
+    }
 
-	static boolean expired(long ts, long ttl, TtlTimeProvider timeProvider) {
-		return getExpirationTimestamp(ts, ttl) <= timeProvider.currentTimestamp();
-	}
+    static <V> boolean expired(@Nullable TtlValue<V> ttlValue, long ttl, long currentTimestamp) {
+        return ttlValue != null
+                && expired(ttlValue.getLastAccessTimestamp(), ttl, currentTimestamp);
+    }
 
-	private static long getExpirationTimestamp(long ts, long ttl) {
-		long ttlWithoutOverflow = ts > 0 ? Math.min(Long.MAX_VALUE - ts, ttl) : ttl;
-		return ts + ttlWithoutOverflow;
-	}
+    static boolean expired(long ts, long ttl, TtlTimeProvider timeProvider) {
+        return expired(ts, ttl, timeProvider.currentTimestamp());
+    }
 
-	static <V> TtlValue<V> wrapWithTs(V value, long ts) {
-		return value == null ? null : new TtlValue<>(value, ts);
-	}
+    public static boolean expired(long ts, long ttl, long currentTimestamp) {
+        return getExpirationTimestamp(ts, ttl) <= currentTimestamp;
+    }
+
+    private static long getExpirationTimestamp(long ts, long ttl) {
+        long ttlWithoutOverflow = ts > 0 ? Math.min(Long.MAX_VALUE - ts, ttl) : ttl;
+        return ts + ttlWithoutOverflow;
+    }
+
+    static <V> TtlValue<V> wrapWithTs(V value, long ts) {
+        return new TtlValue<>(value, ts);
+    }
 }

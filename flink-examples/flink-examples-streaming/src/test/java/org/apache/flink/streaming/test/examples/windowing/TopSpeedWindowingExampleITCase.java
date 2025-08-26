@@ -17,10 +17,10 @@
 
 package org.apache.flink.streaming.test.examples.windowing;
 
+import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.examples.windowing.TopSpeedWindowing;
 import org.apache.flink.streaming.examples.windowing.util.TopSpeedWindowingExampleData;
-import org.apache.flink.test.util.MiniClusterResource;
-import org.apache.flink.test.util.MiniClusterResourceConfiguration;
+import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.flink.util.FileUtils;
 import org.apache.flink.util.TestLogger;
 
@@ -32,32 +32,36 @@ import java.io.File;
 
 import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
 
-/**
- * Tests for {@link TopSpeedWindowing}.
- */
+/** Tests for {@link TopSpeedWindowing}. */
 public class TopSpeedWindowingExampleITCase extends TestLogger {
 
-	@ClassRule
-	public static TemporaryFolder temporaryFolder = new TemporaryFolder();
+    @ClassRule public static TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-	@ClassRule
-	public static MiniClusterResource miniClusterResource = new MiniClusterResource(
-		new MiniClusterResourceConfiguration.Builder()
-			.setNumberTaskManagers(1)
-			.setNumberSlotsPerTaskManager(1)
-			.build());
+    @ClassRule
+    public static MiniClusterWithClientResource miniClusterResource =
+            new MiniClusterWithClientResource(
+                    new MiniClusterResourceConfiguration.Builder()
+                            .setNumberTaskManagers(1)
+                            .setNumberSlotsPerTaskManager(1)
+                            .build());
 
-	@Test
-	public void testTopSpeedWindowingExampleITCase() throws Exception {
-		File inputFile = temporaryFolder.newFile();
-		FileUtils.writeFileUtf8(inputFile, TopSpeedWindowingExampleData.CAR_DATA);
+    @Test
+    public void testTopSpeedWindowingExampleITCase() throws Exception {
+        File inputFile = temporaryFolder.newFile();
+        FileUtils.writeFileUtf8(inputFile, TopSpeedWindowingExampleData.CAR_DATA);
 
-		final String resultPath = temporaryFolder.newFolder().toURI().toString();
+        final String resultPath = temporaryFolder.newFolder().toURI().toString();
 
-		TopSpeedWindowing.main(new String[] {
-			"--input", inputFile.getAbsolutePath(),
-			"--output", resultPath});
+        TopSpeedWindowing.main(
+                new String[] {
+                    "--input",
+                    inputFile.getAbsolutePath(),
+                    "--output",
+                    resultPath,
+                    "--execution-mode",
+                    "AUTOMATIC"
+                });
 
-		compareResultsByLinesInMemory(TopSpeedWindowingExampleData.TOP_SPEEDS, resultPath);
-	}
+        compareResultsByLinesInMemory(TopSpeedWindowingExampleData.TOP_SPEEDS, resultPath);
+    }
 }

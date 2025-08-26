@@ -23,10 +23,10 @@ import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.FileSystemBehaviorTestSuite;
 import org.apache.flink.core.fs.FileSystemKind;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.testutils.s3.S3TestCredentials;
 
-import org.junit.AfterClass;
-import org.junit.Assume;
-import org.junit.BeforeClass;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 
 import java.io.IOException;
 import java.util.UUID;
@@ -34,46 +34,39 @@ import java.util.UUID;
 /**
  * An implementation of the {@link FileSystemBehaviorTestSuite} for the s3a-based S3 file system.
  */
-public class HadoopS3FileSystemBehaviorITCase extends FileSystemBehaviorTestSuite {
+class HadoopS3FileSystemBehaviorITCase extends FileSystemBehaviorTestSuite {
 
-	private static final String BUCKET = System.getenv("ARTIFACTS_AWS_BUCKET");
+    private static final String TEST_DATA_DIR = "tests-" + UUID.randomUUID();
 
-	private static final String TEST_DATA_DIR = "tests-" + UUID.randomUUID();
+    @BeforeAll
+    static void checkCredentialsAndSetup() {
+        // check whether credentials exist
+        S3TestCredentials.assumeCredentialsAvailable();
 
-	private static final String ACCESS_KEY = System.getenv("ARTIFACTS_AWS_ACCESS_KEY");
-	private static final String SECRET_KEY = System.getenv("ARTIFACTS_AWS_SECRET_KEY");
+        // initialize configuration with valid credentials
+        final Configuration conf = new Configuration();
+        conf.setString("s3.access.key", S3TestCredentials.getS3AccessKey());
+        conf.setString("s3.secret.key", S3TestCredentials.getS3SecretKey());
+        FileSystem.initialize(conf, null);
+    }
 
-	@BeforeClass
-	public static void checkCredentialsAndSetup() throws IOException {
-		// check whether credentials exist
-		Assume.assumeTrue("AWS S3 bucket not configured, skipping test...", BUCKET != null);
-		Assume.assumeTrue("AWS S3 access key not configured, skipping test...", ACCESS_KEY != null);
-		Assume.assumeTrue("AWS S3 secret key not configured, skipping test...", SECRET_KEY != null);
+    @AfterAll
+    static void clearFsConfig() throws IOException {
+        FileSystem.initialize(new Configuration(), null);
+    }
 
-		// initialize configuration with valid credentials
-		final Configuration conf = new Configuration();
-		conf.setString("s3.access.key", ACCESS_KEY);
-		conf.setString("s3.secret.key", SECRET_KEY);
-		FileSystem.initialize(conf);
-	}
+    @Override
+    protected FileSystem getFileSystem() throws Exception {
+        return getBasePath().getFileSystem();
+    }
 
-	@AfterClass
-	public static void clearFsConfig() throws IOException {
-		FileSystem.initialize(new Configuration());
-	}
+    @Override
+    protected Path getBasePath() throws Exception {
+        return new Path(S3TestCredentials.getTestBucketUri() + TEST_DATA_DIR);
+    }
 
-	@Override
-	public FileSystem getFileSystem() throws Exception {
-		return getBasePath().getFileSystem();
-	}
-
-	@Override
-	public Path getBasePath() throws Exception {
-		return new Path("s3://" + BUCKET + '/' + TEST_DATA_DIR);
-	}
-
-	@Override
-	public FileSystemKind getFileSystemKind() {
-		return FileSystemKind.OBJECT_STORE;
-	}
+    @Override
+    protected FileSystemKind getFileSystemKind() {
+        return FileSystemKind.OBJECT_STORE;
+    }
 }

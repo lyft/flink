@@ -15,13 +15,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.api.scala.migration
 
+@SerialVersionUID(-1196651213850142840L)
 case class CustomCaseClass(a: String, b: Long)
 
+@SerialVersionUID(-4562410952220372998L)
 case class CustomCaseClassWithNesting(a: Long, nested: CustomCaseClass)
 
+@SerialVersionUID(137486769747470244L)
 object CustomEnum extends Enumeration {
   type CustomEnum = Value
   val ONE, TWO, THREE, FOUR = Value

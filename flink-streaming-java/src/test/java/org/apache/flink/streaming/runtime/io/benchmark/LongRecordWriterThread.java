@@ -20,7 +20,6 @@ package org.apache.flink.streaming.runtime.io.benchmark;
 
 import org.apache.flink.core.testutils.CheckedThread;
 import org.apache.flink.runtime.io.network.api.writer.RecordWriter;
-import org.apache.flink.streaming.runtime.io.StreamRecordWriter;
 import org.apache.flink.types.LongValue;
 
 import java.io.IOException;
@@ -34,67 +33,69 @@ import static org.apache.flink.util.Preconditions.checkState;
  * records.
  */
 public class LongRecordWriterThread extends CheckedThread {
-	private final StreamRecordWriter<LongValue> recordWriter;
+    private final RecordWriter<LongValue> recordWriter;
+    private final boolean broadcastMode;
 
-	/**
-	 * Future to wait on a definition of the number of records to send.
-	 */
-	private CompletableFuture<Long> recordsToSend = new CompletableFuture<>();
+    /** Future to wait on a definition of the number of records to send. */
+    private CompletableFuture<Long> recordsToSend = new CompletableFuture<>();
 
-	private volatile boolean running = true;
+    private volatile boolean running = true;
 
-	public LongRecordWriterThread(StreamRecordWriter<LongValue> recordWriter) {
-		this.recordWriter = checkNotNull(recordWriter);
-	}
+    public LongRecordWriterThread(RecordWriter<LongValue> recordWriter, boolean broadcastMode) {
+        this.recordWriter = checkNotNull(recordWriter);
+        this.broadcastMode = broadcastMode;
+    }
 
-	public synchronized void shutdown() {
-		running = false;
-		recordsToSend.complete(0L);
-	}
+    public synchronized void shutdown() {
+        running = false;
+        recordsToSend.complete(0L);
+    }
 
-	/**
-	 * Initializes the record writer thread with this many numbers to send.
-	 *
-	 * <p>If the thread was already started, if may now continue.
-	 *
-	 * @param records
-	 * 		number of records to send
-	 */
-	public synchronized void setRecordsToSend(long records) {
-		checkState(!recordsToSend.isDone());
-		recordsToSend.complete(records);
-	}
+    /**
+     * Initializes the record writer thread with this many numbers to send.
+     *
+     * <p>If the thread was already started, if may now continue.
+     *
+     * @param records number of records to send
+     */
+    public synchronized void setRecordsToSend(long records) {
+        checkState(!recordsToSend.isDone());
+        recordsToSend.complete(records);
+    }
 
-	private synchronized CompletableFuture<Long> getRecordsToSend() {
-		return recordsToSend;
-	}
+    private synchronized CompletableFuture<Long> getRecordsToSend() {
+        return recordsToSend;
+    }
 
-	private synchronized void finishSendingRecords() {
-		recordsToSend = new CompletableFuture<>();
-	}
+    private synchronized void finishSendingRecords() {
+        recordsToSend = new CompletableFuture<>();
+    }
 
-	@Override
-	public void go() throws Exception {
-		try {
-			while (running) {
-				sendRecords(getRecordsToSend().get());
-			}
-		}
-		finally {
-			recordWriter.close();
-		}
-	}
+    @Override
+    public void go() throws Exception {
+        try {
+            while (running) {
+                sendRecords(getRecordsToSend().get());
+            }
+        } finally {
+            recordWriter.close();
+        }
+    }
 
-	private void sendRecords(long records) throws IOException, InterruptedException {
-		LongValue value = new LongValue(0);
+    private void sendRecords(long records) throws IOException, InterruptedException {
+        LongValue value = new LongValue(0);
 
-		for (int i = 1; i < records; i++) {
-			recordWriter.emit(value);
-		}
-		value.setValue(records);
-		recordWriter.broadcastEmit(value);
-		recordWriter.flushAll();
+        for (int i = 1; i < records; i++) {
+            if (broadcastMode) {
+                recordWriter.broadcastEmit(value);
+            } else {
+                recordWriter.emit(value);
+            }
+        }
+        value.setValue(records);
+        recordWriter.broadcastEmit(value);
+        recordWriter.flushAll();
 
-		finishSendingRecords();
-	}
+        finishSendingRecords();
+    }
 }

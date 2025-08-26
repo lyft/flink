@@ -19,252 +19,254 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.runtime.concurrent.Executors;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.HighAvailabilityOptions;
+import org.apache.flink.core.testutils.FlinkMatchers;
+import org.apache.flink.runtime.highavailability.zookeeper.CuratorFrameworkWithUnhandledErrorListener;
+import org.apache.flink.runtime.jobgraph.RestoreMode;
+import org.apache.flink.runtime.operators.testutils.ExpectedTestException;
+import org.apache.flink.runtime.rest.util.NoOpFatalErrorHandler;
 import org.apache.flink.runtime.state.RetrievableStateHandle;
+import org.apache.flink.runtime.state.SharedStateRegistry;
+import org.apache.flink.runtime.state.SharedStateRegistryImpl;
 import org.apache.flink.runtime.state.testutils.TestCompletedCheckpointStorageLocation;
-import org.apache.flink.runtime.zookeeper.RetrievableStateStorageHelper;
+import org.apache.flink.runtime.util.ZooKeeperUtils;
+import org.apache.flink.runtime.zookeeper.ZooKeeperResource;
 import org.apache.flink.runtime.zookeeper.ZooKeeperStateHandleStore;
 import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.concurrent.Executors;
 
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.api.BackgroundCallback;
-import org.apache.curator.framework.api.CuratorEvent;
-import org.apache.curator.framework.api.CuratorEventType;
-import org.apache.curator.framework.api.ErrorListenerPathable;
-import org.apache.curator.utils.EnsurePath;
+import org.apache.flink.shaded.curator5.org.apache.curator.framework.CuratorFramework;
+
+import org.hamcrest.Matchers;
+import org.junit.ClassRule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.io.IOException;
+import javax.annotation.Nonnull;
+
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.Executor;
+import java.util.concurrent.CountDownLatch;
+import java.util.function.Function;
 
+import static java.util.Collections.emptyList;
+import static org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.powermock.api.mockito.PowerMockito.doAnswer;
-import static org.powermock.api.mockito.PowerMockito.doThrow;
-import static org.powermock.api.mockito.PowerMockito.whenNew;
+import static org.junit.Assert.assertThrows;
 
-/**
- * Tests for {@link ZooKeeperCompletedCheckpointStore}.
- */
-@RunWith(PowerMockRunner.class)
-@PrepareForTest(ZooKeeperCompletedCheckpointStore.class)
+/** Tests for {@link DefaultCompletedCheckpointStore} with {@link ZooKeeperStateHandleStore}. */
 public class ZooKeeperCompletedCheckpointStoreTest extends TestLogger {
 
-	@Test
-	public void testPathConversion() {
-		final long checkpointId = 42L;
+    @ClassRule public static ZooKeeperResource zooKeeperResource = new ZooKeeperResource();
 
-		final String path = ZooKeeperCompletedCheckpointStore.checkpointIdToPath(checkpointId);
+    private static final ZooKeeperCheckpointStoreUtil zooKeeperCheckpointStoreUtil =
+            ZooKeeperCheckpointStoreUtil.INSTANCE;
 
-		assertEquals(checkpointId, ZooKeeperCompletedCheckpointStore.pathToCheckpointId(path));
-	}
+    @Test
+    public void testPathConversion() {
+        final long checkpointId = 42L;
 
-	/**
-	 * Tests that the completed checkpoint store can retrieve all checkpoints stored in ZooKeeper
-	 * and ignores those which cannot be retrieved via their state handles.
-	 *
-	 * <p>We have a timeout in case the ZooKeeper store get's into a deadlock/livelock situation.
-	 */
-	@Test(timeout = 50000)
-	public void testCheckpointRecovery() throws Exception {
-		final JobID jobID = new JobID();
-		final long checkpoint1Id = 1L;
-		final long checkpoint2Id = 2;
-		final List<Tuple2<RetrievableStateHandle<CompletedCheckpoint>, String>> checkpointsInZooKeeper = new ArrayList<>(4);
+        final String path = zooKeeperCheckpointStoreUtil.checkpointIDToName(checkpointId);
 
-		final Collection<Long> expectedCheckpointIds = new HashSet<>(2);
-		expectedCheckpointIds.add(1L);
-		expectedCheckpointIds.add(2L);
+        assertEquals(checkpointId, zooKeeperCheckpointStoreUtil.nameToCheckpointID(path));
+    }
 
-		final RetrievableStateHandle<CompletedCheckpoint> failingRetrievableStateHandle = mock(RetrievableStateHandle.class);
-		when(failingRetrievableStateHandle.retrieveState()).thenThrow(new IOException("Test exception"));
+    @Test
+    public void testRecoverFailsIfDownloadFails() {
+        final Configuration configuration = new Configuration();
+        configuration.setString(
+                HighAvailabilityOptions.HA_ZOOKEEPER_QUORUM, zooKeeperResource.getConnectString());
+        final List<Tuple2<RetrievableStateHandle<CompletedCheckpoint>, String>> checkpointsInZk =
+                new ArrayList<>();
+        final ZooKeeperStateHandleStore<CompletedCheckpoint> checkpointsInZooKeeper =
+                new ZooKeeperStateHandleStore<CompletedCheckpoint>(
+                        ZooKeeperUtils.startCuratorFramework(
+                                        configuration, NoOpFatalErrorHandler.INSTANCE)
+                                .asCuratorFramework(),
+                        new TestingRetrievableStateStorageHelper<>()) {
+                    @Override
+                    public List<Tuple2<RetrievableStateHandle<CompletedCheckpoint>, String>>
+                            getAllAndLock() {
+                        return checkpointsInZk;
+                    }
+                };
 
-		final RetrievableStateHandle<CompletedCheckpoint> retrievableStateHandle1 = mock(RetrievableStateHandle.class);
-		when(retrievableStateHandle1.retrieveState()).then(
-			(invocation) -> new CompletedCheckpoint(
-				jobID,
-				checkpoint1Id,
-				1L,
-				1L,
-				new HashMap<>(),
-				null,
-				CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
-				new TestCompletedCheckpointStorageLocation()));
+        checkpointsInZk.add(
+                createHandle(
+                        1,
+                        id -> {
+                            throw new ExpectedTestException();
+                        }));
+        final Exception exception =
+                assertThrows(
+                        Exception.class,
+                        () ->
+                                DefaultCompletedCheckpointStoreUtils.retrieveCompletedCheckpoints(
+                                        checkpointsInZooKeeper, zooKeeperCheckpointStoreUtil));
+        assertThat(exception, FlinkMatchers.containsCause(ExpectedTestException.class));
+    }
 
-		final RetrievableStateHandle<CompletedCheckpoint> retrievableStateHandle2 = mock(RetrievableStateHandle.class);
-		when(retrievableStateHandle2.retrieveState()).then(
-			(invocation -> new CompletedCheckpoint(
-				jobID,
-				checkpoint2Id,
-				2L,
-				2L,
-				new HashMap<>(),
-				null,
-				CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
-				new TestCompletedCheckpointStorageLocation())));
+    private Tuple2<RetrievableStateHandle<CompletedCheckpoint>, String> createHandle(
+            long id, Function<Long, CompletedCheckpoint> checkpointSupplier) {
+        return Tuple2.of(
+                new CheckpointStateHandle(checkpointSupplier, id),
+                zooKeeperCheckpointStoreUtil.checkpointIDToName(id));
+    }
 
-		checkpointsInZooKeeper.add(Tuple2.of(retrievableStateHandle1, "/foobar1"));
-		checkpointsInZooKeeper.add(Tuple2.of(failingRetrievableStateHandle, "/failing1"));
-		checkpointsInZooKeeper.add(Tuple2.of(retrievableStateHandle2, "/foobar2"));
-		checkpointsInZooKeeper.add(Tuple2.of(failingRetrievableStateHandle, "/failing2"));
+    /** Tests that subsumed checkpoints are discarded. */
+    @Test
+    public void testDiscardingSubsumedCheckpoints() throws Exception {
+        final SharedStateRegistry sharedStateRegistry = new SharedStateRegistryImpl();
+        final Configuration configuration = new Configuration();
+        configuration.setString(
+                HighAvailabilityOptions.HA_ZOOKEEPER_QUORUM, zooKeeperResource.getConnectString());
 
-		final CuratorFramework client = mock(CuratorFramework.class, Mockito.RETURNS_DEEP_STUBS);
-		final RetrievableStateStorageHelper<CompletedCheckpoint> storageHelperMock = mock(RetrievableStateStorageHelper.class);
+        final CuratorFrameworkWithUnhandledErrorListener curatorFrameworkWrapper =
+                ZooKeeperUtils.startCuratorFramework(configuration, NoOpFatalErrorHandler.INSTANCE);
+        final CompletedCheckpointStore checkpointStore =
+                createZooKeeperCheckpointStore(curatorFrameworkWrapper.asCuratorFramework());
 
-		ZooKeeperStateHandleStore<CompletedCheckpoint> zooKeeperStateHandleStoreMock = spy(new ZooKeeperStateHandleStore<>(client, storageHelperMock, Executors.directExecutor()));
-		whenNew(ZooKeeperStateHandleStore.class).withAnyArguments().thenReturn(zooKeeperStateHandleStoreMock);
-		doReturn(checkpointsInZooKeeper).when(zooKeeperStateHandleStoreMock).getAllSortedByNameAndLock();
+        try {
+            final CompletedCheckpointStoreTest.TestCompletedCheckpoint checkpoint1 =
+                    CompletedCheckpointStoreTest.createCheckpoint(0, sharedStateRegistry);
 
-		final int numCheckpointsToRetain = 1;
+            checkpointStore.addCheckpointAndSubsumeOldestOne(
+                    checkpoint1, new CheckpointsCleaner(), () -> {});
+            assertThat(checkpointStore.getAllCheckpoints(), Matchers.contains(checkpoint1));
 
-		// Mocking for the delete operation on the CuratorFramework client
-		// It assures that the callback is executed synchronously
+            final CompletedCheckpointStoreTest.TestCompletedCheckpoint checkpoint2 =
+                    CompletedCheckpointStoreTest.createCheckpoint(1, sharedStateRegistry);
+            checkpointStore.addCheckpointAndSubsumeOldestOne(
+                    checkpoint2, new CheckpointsCleaner(), () -> {});
+            final List<CompletedCheckpoint> allCheckpoints = checkpointStore.getAllCheckpoints();
+            assertThat(allCheckpoints, Matchers.contains(checkpoint2));
+            assertThat(allCheckpoints, Matchers.not(Matchers.contains(checkpoint1)));
 
-		final EnsurePath ensurePathMock = mock(EnsurePath.class);
-		final CuratorEvent curatorEventMock = mock(CuratorEvent.class);
-		when(curatorEventMock.getType()).thenReturn(CuratorEventType.DELETE);
-		when(curatorEventMock.getResultCode()).thenReturn(0);
-		when(client.newNamespaceAwareEnsurePath(anyString())).thenReturn(ensurePathMock);
+            // verify that the subsumed checkpoint is discarded
+            CompletedCheckpointStoreTest.verifyCheckpointDiscarded(checkpoint1);
+        } finally {
+            curatorFrameworkWrapper.close();
+        }
+    }
 
-		when(
-			client
-				.delete()
-				.inBackground(any(BackgroundCallback.class), any(Executor.class))
-		).thenAnswer(new Answer<ErrorListenerPathable<Void>>() {
-			@Override
-			public ErrorListenerPathable<Void> answer(InvocationOnMock invocation) throws Throwable {
-				final BackgroundCallback callback = (BackgroundCallback) invocation.getArguments()[0];
+    /**
+     * Tests that checkpoints are discarded when the completed checkpoint store is shut down with a
+     * globally terminal state.
+     */
+    @Test
+    public void testDiscardingCheckpointsAtShutDown() throws Exception {
+        final SharedStateRegistry sharedStateRegistry = new SharedStateRegistryImpl();
+        final Configuration configuration = new Configuration();
+        configuration.setString(
+                HighAvailabilityOptions.HA_ZOOKEEPER_QUORUM, zooKeeperResource.getConnectString());
 
-				ErrorListenerPathable<Void> result = mock(ErrorListenerPathable.class);
+        final CuratorFrameworkWithUnhandledErrorListener curatorFrameworkWrapper =
+                ZooKeeperUtils.startCuratorFramework(configuration, NoOpFatalErrorHandler.INSTANCE);
+        final CompletedCheckpointStore checkpointStore =
+                createZooKeeperCheckpointStore(curatorFrameworkWrapper.asCuratorFramework());
 
-				when(result.forPath(anyString())).thenAnswer(new Answer<Void>() {
-					@Override
-					public Void answer(InvocationOnMock invocation) throws Throwable {
+        try {
+            final CompletedCheckpointStoreTest.TestCompletedCheckpoint checkpoint1 =
+                    CompletedCheckpointStoreTest.createCheckpoint(0, sharedStateRegistry);
 
-						callback.processResult(client, curatorEventMock);
+            checkpointStore.addCheckpointAndSubsumeOldestOne(
+                    checkpoint1, new CheckpointsCleaner(), () -> {});
+            assertThat(checkpointStore.getAllCheckpoints(), Matchers.contains(checkpoint1));
 
-						return null;
-					}
-				});
+            checkpointStore.shutdown(JobStatus.FINISHED, new CheckpointsCleaner());
 
-				return result;
-			}
-		});
+            // verify that the checkpoint is discarded
+            CompletedCheckpointStoreTest.verifyCheckpointDiscarded(checkpoint1);
+        } finally {
+            curatorFrameworkWrapper.close();
+        }
+    }
 
-		final String checkpointsPath = "foobar";
-		final RetrievableStateStorageHelper<CompletedCheckpoint> stateStorage = mock(RetrievableStateStorageHelper.class);
+    @Nonnull
+    private CompletedCheckpointStore createZooKeeperCheckpointStore(CuratorFramework client)
+            throws Exception {
+        final ZooKeeperStateHandleStore<CompletedCheckpoint> checkpointsInZooKeeper =
+                ZooKeeperUtils.createZooKeeperStateHandleStore(
+                        client, "/checkpoints", new TestingRetrievableStateStorageHelper<>());
+        return new DefaultCompletedCheckpointStore<>(
+                1,
+                checkpointsInZooKeeper,
+                zooKeeperCheckpointStoreUtil,
+                Collections.emptyList(),
+                SharedStateRegistry.DEFAULT_FACTORY.create(
+                        Executors.directExecutor(), emptyList(), RestoreMode.DEFAULT),
+                Executors.directExecutor());
+    }
 
-		ZooKeeperCompletedCheckpointStore zooKeeperCompletedCheckpointStore = new ZooKeeperCompletedCheckpointStore(
-			numCheckpointsToRetain,
-			client,
-			checkpointsPath,
-			stateStorage,
-			Executors.directExecutor());
+    private static class CheckpointStateHandle
+            implements RetrievableStateHandle<CompletedCheckpoint> {
+        private static final long serialVersionUID = 1L;
+        private final Function<Long, CompletedCheckpoint> checkpointSupplier;
+        private final long id;
 
-		zooKeeperCompletedCheckpointStore.recover();
+        CheckpointStateHandle(Function<Long, CompletedCheckpoint> checkpointSupplier, long id) {
+            this.checkpointSupplier = checkpointSupplier;
+            this.id = id;
+        }
 
-		CompletedCheckpoint latestCompletedCheckpoint = zooKeeperCompletedCheckpointStore.getLatestCheckpoint();
+        @Override
+        public CompletedCheckpoint retrieveState() {
+            return checkpointSupplier.apply(id);
+        }
 
-		// check that we return the latest retrievable checkpoint
-		// this should remove the latest checkpoint because it is broken
-		assertEquals(checkpoint2Id, latestCompletedCheckpoint.getCheckpointID());
+        @Override
+        public void discardState() {}
 
-		// this should remove the second broken checkpoint because we're iterating over all checkpoints
-		List<CompletedCheckpoint> completedCheckpoints = zooKeeperCompletedCheckpointStore.getAllCheckpoints();
+        @Override
+        public long getStateSize() {
+            return 0;
+        }
+    }
 
-		Collection<Long> actualCheckpointIds = new HashSet<>(completedCheckpoints.size());
+    /**
+     * Tests that the checkpoint does not exist in the store when we fail to add it into the store
+     * (i.e., there exists an exception thrown by the method).
+     */
+    @Test
+    public void testAddCheckpointWithFailedRemove() throws Exception {
 
-		for (CompletedCheckpoint completedCheckpoint : completedCheckpoints) {
-			actualCheckpointIds.add(completedCheckpoint.getCheckpointID());
-		}
+        final int numCheckpointsToRetain = 1;
+        final Configuration configuration = new Configuration();
+        configuration.setString(
+                HighAvailabilityOptions.HA_ZOOKEEPER_QUORUM, zooKeeperResource.getConnectString());
 
-		assertEquals(expectedCheckpointIds, actualCheckpointIds);
+        final CuratorFrameworkWithUnhandledErrorListener curatorFrameworkWrapper =
+                ZooKeeperUtils.startCuratorFramework(configuration, NoOpFatalErrorHandler.INSTANCE);
 
-		// check that we did not discard any of the state handles
-		verify(retrievableStateHandle1, never()).discardState();
-		verify(retrievableStateHandle2, never()).discardState();
+        final CompletedCheckpointStore store =
+                createZooKeeperCheckpointStore(curatorFrameworkWrapper.asCuratorFramework());
 
-		// Make sure that we also didn't discard any of the broken handles. Only when checkpoints
-		// are subsumed should they be discarded.
-		verify(failingRetrievableStateHandle, never()).discardState();
-	}
-
-	/**
-	 * Tests that the checkpoint does not exist in the store when we fail to add
-	 * it into the store (i.e., there exists an exception thrown by the method).
-	 */
-	@Test
-	public void testAddCheckpointWithFailedRemove() throws Exception {
-		final CuratorFramework client = mock(CuratorFramework.class, Mockito.RETURNS_DEEP_STUBS);
-		final RetrievableStateStorageHelper<CompletedCheckpoint> storageHelperMock = mock(RetrievableStateStorageHelper.class);
-
-		ZooKeeperStateHandleStore<CompletedCheckpoint> zookeeperStateHandleStoreMock =
-			spy(new ZooKeeperStateHandleStore<>(client, storageHelperMock, Executors.directExecutor()));
-		whenNew(ZooKeeperStateHandleStore.class).withAnyArguments().thenReturn(zookeeperStateHandleStoreMock);
-
-		doAnswer(new Answer<RetrievableStateHandle<CompletedCheckpoint>>() {
-			@Override
-			public RetrievableStateHandle<CompletedCheckpoint> answer(InvocationOnMock invocationOnMock) throws Throwable {
-				CompletedCheckpoint checkpoint = (CompletedCheckpoint) invocationOnMock.getArguments()[1];
-
-				RetrievableStateHandle<CompletedCheckpoint> retrievableStateHandle = mock(RetrievableStateHandle.class);
-				when(retrievableStateHandle.retrieveState()).thenReturn(checkpoint);
-
-				return retrievableStateHandle;
-			}
-		}).when(zookeeperStateHandleStoreMock).addAndLock(anyString(), any(CompletedCheckpoint.class));
-
-		doThrow(new Exception()).when(zookeeperStateHandleStoreMock).releaseAndTryRemove(anyString(), any(ZooKeeperStateHandleStore.RemoveCallback.class));
-
-		final int numCheckpointsToRetain = 1;
-		final String checkpointsPath = "foobar";
-		final RetrievableStateStorageHelper<CompletedCheckpoint> stateSotrage = mock(RetrievableStateStorageHelper.class);
-
-		ZooKeeperCompletedCheckpointStore zooKeeperCompletedCheckpointStore = new ZooKeeperCompletedCheckpointStore(
-			numCheckpointsToRetain,
-			client,
-			checkpointsPath,
-			stateSotrage,
-			Executors.directExecutor());
-
-		for (long i = 0; i <= numCheckpointsToRetain; ++i) {
-			CompletedCheckpoint checkpointToAdd = mock(CompletedCheckpoint.class);
-			doReturn(i).when(checkpointToAdd).getCheckpointID();
-			doReturn(Collections.emptyMap()).when(checkpointToAdd).getOperatorStates();
-
-			try {
-				zooKeeperCompletedCheckpointStore.addCheckpoint(checkpointToAdd);
-
-				// The checkpoint should be in the store if we successfully add it into the store.
-				List<CompletedCheckpoint> addedCheckpoints = zooKeeperCompletedCheckpointStore.getAllCheckpoints();
-				assertTrue(addedCheckpoints.contains(checkpointToAdd));
-			} catch (Exception e) {
-				// The checkpoint should not be in the store if any exception is thrown.
-				List<CompletedCheckpoint> addedCheckpoints = zooKeeperCompletedCheckpointStore.getAllCheckpoints();
-				assertFalse(addedCheckpoints.contains(checkpointToAdd));
-			}
-		}
-	}
+        CountDownLatch discardAttempted = new CountDownLatch(1);
+        for (long i = 0; i < numCheckpointsToRetain + 1; ++i) {
+            CompletedCheckpoint checkpointToAdd =
+                    new CompletedCheckpoint(
+                            new JobID(),
+                            i,
+                            i,
+                            i,
+                            Collections.emptyMap(),
+                            Collections.emptyList(),
+                            CheckpointProperties.forCheckpoint(NEVER_RETAIN_AFTER_TERMINATION),
+                            new TestCompletedCheckpointStorageLocation(),
+                            null);
+            // shouldn't fail despite the exception
+            store.addCheckpointAndSubsumeOldestOne(
+                    checkpointToAdd,
+                    new CheckpointsCleaner(),
+                    () -> {
+                        discardAttempted.countDown();
+                        throw new RuntimeException();
+                    });
+        }
+        discardAttempted.await();
+    }
 }

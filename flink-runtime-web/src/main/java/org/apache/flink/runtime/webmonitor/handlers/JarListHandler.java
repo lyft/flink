@@ -20,7 +20,7 @@ package org.apache.flink.runtime.webmonitor.handlers;
 
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.client.program.PackagedProgram;
-import org.apache.flink.runtime.concurrent.FutureUtils;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.RestHandlerException;
@@ -30,6 +30,8 @@ import org.apache.flink.runtime.rest.messages.MessageHeaders;
 import org.apache.flink.runtime.webmonitor.RestfulGateway;
 import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
 import org.apache.flink.util.FlinkException;
+import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.concurrent.FutureUtils;
 
 import javax.annotation.Nonnull;
 
@@ -46,116 +48,144 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 import static java.util.Objects.requireNonNull;
-import static org.apache.flink.util.Preconditions.checkState;
 
-/**
- * Handle request for listing uploaded jars.
- */
-public class JarListHandler extends AbstractRestHandler<RestfulGateway, EmptyRequestBody, JarListInfo, EmptyMessageParameters> {
+/** Handle request for listing uploaded jars. */
+public class JarListHandler
+        extends AbstractRestHandler<
+                RestfulGateway, EmptyRequestBody, JarListInfo, EmptyMessageParameters> {
 
-	private static final File[] EMPTY_FILES_ARRAY = new File[0];
+    private static final File[] EMPTY_FILES_ARRAY = new File[0];
 
-	private final File jarDir;
+    private final CompletableFuture<String> localAddressFuture;
 
-	private final Executor executor;
+    private final File jarDir;
 
-	public JarListHandler(
-			CompletableFuture<String> localRestAddress,
-			GatewayRetriever<? extends RestfulGateway> leaderRetriever,
-			Time timeout,
-			Map<String, String> responseHeaders,
-			MessageHeaders<EmptyRequestBody, JarListInfo, EmptyMessageParameters> messageHeaders,
-			File jarDir,
-			Executor executor) {
-		super(localRestAddress, leaderRetriever, timeout, responseHeaders, messageHeaders);
+    private final Configuration configuration;
 
-		this.jarDir = requireNonNull(jarDir);
-		this.executor = requireNonNull(executor);
-	}
+    private final Executor executor;
 
-	@Override
-	protected CompletableFuture<JarListInfo> handleRequest(@Nonnull HandlerRequest<EmptyRequestBody, EmptyMessageParameters> request, @Nonnull RestfulGateway gateway) throws RestHandlerException {
-		final String localAddress;
-		checkState(localAddressFuture.isDone());
+    public JarListHandler(
+            GatewayRetriever<? extends RestfulGateway> leaderRetriever,
+            Time timeout,
+            Map<String, String> responseHeaders,
+            MessageHeaders<EmptyRequestBody, JarListInfo, EmptyMessageParameters> messageHeaders,
+            CompletableFuture<String> localAddressFuture,
+            File jarDir,
+            Configuration configuration,
+            Executor executor) {
+        super(leaderRetriever, timeout, responseHeaders, messageHeaders);
 
-		try {
-			localAddress = localAddressFuture.get();
-		} catch (Exception e) {
-			return FutureUtils.completedExceptionally(e);
-		}
+        this.localAddressFuture = localAddressFuture;
+        this.jarDir = requireNonNull(jarDir);
+        this.configuration = configuration;
+        this.executor = requireNonNull(executor);
+    }
 
-		return CompletableFuture.supplyAsync(() -> {
-			try {
-				final File[] list = getJarFiles();
-				final List<JarListInfo.JarFileInfo> jarFileList = new ArrayList<>(list.length);
-				for (File f : list) {
-					// separate the uuid and the name parts.
-					String id = f.getName();
+    @Override
+    protected CompletableFuture<JarListInfo> handleRequest(
+            @Nonnull HandlerRequest<EmptyRequestBody> request, @Nonnull RestfulGateway gateway)
+            throws RestHandlerException {
+        final String localAddress;
+        Preconditions.checkState(localAddressFuture.isDone());
 
-					int startIndex = id.indexOf("_");
-					if (startIndex < 0) {
-						continue;
-					}
-					String name = id.substring(startIndex + 1);
-					if (name.length() < 5 || !name.endsWith(".jar")) {
-						continue;
-					}
+        try {
+            localAddress = localAddressFuture.get();
+        } catch (Exception e) {
+            return FutureUtils.completedExceptionally(e);
+        }
 
-					List<JarListInfo.JarEntryInfo> jarEntryList = new ArrayList<>();
-					String[] classes = new String[0];
-					try (JarFile jar = new JarFile(f)) {
-						Manifest manifest = jar.getManifest();
-						String assemblerClass = null;
+        return CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        final File[] list = getJarFiles();
+                        final List<JarListInfo.JarFileInfo> jarFileList =
+                                new ArrayList<>(list.length);
+                        for (File f : list) {
+                            // separate the uuid and the name parts.
+                            String id = f.getName();
 
-						if (manifest != null) {
-							assemblerClass = manifest.getMainAttributes().getValue(PackagedProgram.MANIFEST_ATTRIBUTE_ASSEMBLER_CLASS);
-							if (assemblerClass == null) {
-								assemblerClass = manifest.getMainAttributes().getValue(PackagedProgram.MANIFEST_ATTRIBUTE_MAIN_CLASS);
-							}
-						}
-						if (assemblerClass != null) {
-							classes = assemblerClass.split(",");
-						}
-					} catch (IOException ignored) {
-						// we simply show no entries here
-					}
+                            int startIndex = id.indexOf("_");
+                            if (startIndex < 0) {
+                                continue;
+                            }
+                            String name = id.substring(startIndex + 1);
+                            if (name.length() < 5 || !name.endsWith(".jar")) {
+                                continue;
+                            }
 
-					// show every entry class that can be loaded later on.
-					for (String clazz : classes) {
-						clazz = clazz.trim();
+                            List<JarListInfo.JarEntryInfo> jarEntryList = new ArrayList<>();
+                            String[] classes = new String[0];
+                            try (JarFile jar = new JarFile(f)) {
+                                Manifest manifest = jar.getManifest();
+                                String assemblerClass = null;
 
-						PackagedProgram program = null;
-						try {
-							program = new PackagedProgram(f, clazz, new String[0]);
-						} catch (Exception ignored) {
-							// ignore jar files which throw an error upon creating a PackagedProgram
-						}
-						if (program != null) {
-							JarListInfo.JarEntryInfo jarEntryInfo = new JarListInfo.JarEntryInfo(clazz, program.getDescription());
-							jarEntryList.add(jarEntryInfo);
-						}
-					}
+                                if (manifest != null) {
+                                    assemblerClass =
+                                            manifest.getMainAttributes()
+                                                    .getValue(
+                                                            PackagedProgram
+                                                                    .MANIFEST_ATTRIBUTE_ASSEMBLER_CLASS);
+                                    if (assemblerClass == null) {
+                                        assemblerClass =
+                                                manifest.getMainAttributes()
+                                                        .getValue(
+                                                                PackagedProgram
+                                                                        .MANIFEST_ATTRIBUTE_MAIN_CLASS);
+                                    }
+                                }
+                                if (assemblerClass != null) {
+                                    classes = assemblerClass.split(",");
+                                }
+                            } catch (IOException ignored) {
+                                // we simply show no entries here
+                            }
 
-					jarFileList.add(new JarListInfo.JarFileInfo(id, name, f.lastModified(), jarEntryList));
-				}
+                            // show every entry class that can be loaded later on.
+                            for (String clazz : classes) {
+                                clazz = clazz.trim();
 
-				return new JarListInfo(localAddress, jarFileList);
-			} catch (Exception e) {
-				throw new CompletionException(new FlinkException("Failed to fetch jar list.", e));
-			}
-		}, executor);
-	}
+                                try (PackagedProgram program =
+                                        PackagedProgram.newBuilder()
+                                                .setJarFile(f)
+                                                .setEntryPointClassName(clazz)
+                                                .setConfiguration(configuration)
+                                                .build()) {
+                                    JarListInfo.JarEntryInfo jarEntryInfo =
+                                            new JarListInfo.JarEntryInfo(
+                                                    clazz, program.getDescription());
+                                    jarEntryList.add(jarEntryInfo);
+                                } catch (Exception ignored) {
+                                    // ignore jar files which throw an error upon creating a
+                                    // PackagedProgram
+                                }
+                            }
 
-	private File[] getJarFiles() {
-		final File[] list = jarDir.listFiles((dir, name) -> name.endsWith(".jar"));
-		if (list == null) {
-			log.warn("Jar upload dir {} does not exist, or had been deleted externally. " +
-				"Previously uploaded jars are no longer available.", jarDir);
-			return EMPTY_FILES_ARRAY;
-		} else {
-			// last modified ascending order
-			Arrays.sort(list, (f1, f2) -> Long.compare(f2.lastModified(), f1.lastModified()));
-			return list;
-		}
-	}
+                            jarFileList.add(
+                                    new JarListInfo.JarFileInfo(
+                                            id, name, f.lastModified(), jarEntryList));
+                        }
+
+                        return new JarListInfo(localAddress, jarFileList);
+                    } catch (Exception e) {
+                        throw new CompletionException(
+                                new FlinkException("Failed to fetch jar list.", e));
+                    }
+                },
+                executor);
+    }
+
+    private File[] getJarFiles() {
+        final File[] list = jarDir.listFiles((dir, name) -> name.endsWith(".jar"));
+        if (list == null) {
+            log.warn(
+                    "Jar upload dir {} does not exist, or had been deleted externally. "
+                            + "Previously uploaded jars are no longer available.",
+                    jarDir);
+            return EMPTY_FILES_ARRAY;
+        } else {
+            // last modified ascending order
+            Arrays.sort(list, (f1, f2) -> Long.compare(f2.lastModified(), f1.lastModified()));
+            return list;
+        }
+    }
 }

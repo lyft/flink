@@ -18,140 +18,195 @@
 
 package org.apache.flink.metrics.slf4j;
 
-import org.apache.flink.api.common.JobID;
-import org.apache.flink.configuration.ConfigConstants;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.MetricOptions;
 import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.Meter;
 import org.apache.flink.metrics.MeterView;
+import org.apache.flink.metrics.MetricConfig;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.SimpleCounter;
 import org.apache.flink.metrics.util.TestHistogram;
-import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
-import org.apache.flink.runtime.jobgraph.JobVertexID;
-import org.apache.flink.runtime.metrics.MetricRegistryConfiguration;
-import org.apache.flink.runtime.metrics.MetricRegistryImpl;
-import org.apache.flink.runtime.metrics.groups.TaskManagerMetricGroup;
-import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.metrics.util.TestMetricGroup;
+import org.apache.flink.testutils.logging.LoggerAuditingExtension;
 
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.slf4j.event.Level;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Test for {@link Slf4jReporter}.
- */
-public class Slf4jReporterTest extends TestLogger {
+/** Test for {@link Slf4jReporter}. */
+class Slf4jReporterTest {
 
-	private static final String HOST_NAME = "localhost";
-	private static final String TASK_MANAGER_ID = "tm01";
-	private static final String JOB_NAME = "jn01";
-	private static final String TASK_NAME = "tn01";
-	private static MetricRegistryImpl registry;
-	private static char delimiter;
-	private static TaskMetricGroup taskMetricGroup;
-	private static Slf4jReporter reporter;
+    private static final String SCOPE = "scope";
+    private static char delimiter;
 
-	@BeforeClass
-	public static void setUp() {
-		TestUtils.addTestAppenderForRootLogger();
+    private static MetricGroup metricGroup;
+    private Slf4jReporter reporter;
 
-		Configuration configuration = new Configuration();
-		configuration.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "slf4j." +
-			ConfigConstants.METRICS_REPORTER_CLASS_SUFFIX, Slf4jReporter.class.getName());
-		configuration.setString(MetricOptions.SCOPE_NAMING_TASK, "<host>.<tm_id>.<job_name>");
+    @RegisterExtension
+    private final LoggerAuditingExtension testLoggerResource =
+            new LoggerAuditingExtension(Slf4jReporter.class, Level.INFO);
 
-		registry = new MetricRegistryImpl(MetricRegistryConfiguration.fromConfiguration(configuration));
-		delimiter = registry.getDelimiter();
+    @BeforeAll
+    static void setUp() {
+        delimiter = '.';
 
-		taskMetricGroup = new TaskManagerMetricGroup(registry, HOST_NAME, TASK_MANAGER_ID)
-			.addTaskForJob(new JobID(), JOB_NAME, new JobVertexID(), new ExecutionAttemptID(), TASK_NAME, 0, 0);
-		reporter = (Slf4jReporter) registry.getReporters().get(0);
-	}
+        metricGroup =
+                TestMetricGroup.newBuilder()
+                        .setMetricIdentifierFunction((s, characterFilter) -> SCOPE + delimiter + s)
+                        .build();
+    }
 
-	@AfterClass
-	public static void tearDown() throws Exception {
-		registry.shutdown().get();
-	}
+    @BeforeEach
+    void setUpReporter() {
+        reporter = new Slf4jReporter();
+        reporter.open(new MetricConfig());
+    }
 
-	@Test
-	public void testAddCounter() throws Exception {
-		String counterName = "simpleCounter";
+    @Test
+    void testSkipOnNoMetrics() {
+        reporter.report();
 
-		SimpleCounter counter = new SimpleCounter();
-		taskMetricGroup.counter(counterName, counter);
+        assertThat(testLoggerResource.getMessages())
+                .noneMatch(logOutput -> logOutput.contains("Starting metrics report"))
+                .anyMatch(logOutput -> logOutput.contains("Skipping metrics report"));
+    }
 
-		assertTrue(reporter.getCounters().containsKey(counter));
+    @Test
+    void testOnlyCounterRegistered() {
+        reporter.notifyOfAddedMetric(new SimpleCounter(), "metric", metricGroup);
 
-		String expectedCounterReport = reporter.filterCharacters(HOST_NAME) + delimiter
-			+ reporter.filterCharacters(TASK_MANAGER_ID) + delimiter + reporter.filterCharacters(JOB_NAME) + delimiter
-			+ reporter.filterCharacters(counterName) + ": 0";
+        reporter.report();
 
-		reporter.report();
-		TestUtils.checkForLogString(expectedCounterReport);
-	}
+        assertThat(testLoggerResource.getMessages())
+                .noneMatch(logOutput -> logOutput.contains("-- Meter"))
+                .noneMatch(logOutput -> logOutput.contains("-- Gauge"))
+                .noneMatch(logOutput -> logOutput.contains("-- Histogram"))
+                .anyMatch(logOutput -> logOutput.contains("-- Counter"));
+    }
 
-	@Test
-	public void testAddGauge() throws Exception {
-		String gaugeName = "gauge";
+    @Test
+    void testOnlyMeterRegistered() {
+        reporter.notifyOfAddedMetric(new MeterView(new SimpleCounter()), "metric", metricGroup);
 
-		taskMetricGroup.gauge(gaugeName, null);
-		assertTrue(reporter.getGauges().isEmpty());
+        reporter.report();
 
-		Gauge<Long> gauge = () -> null;
-		taskMetricGroup.gauge(gaugeName, gauge);
-		assertTrue(reporter.getGauges().containsKey(gauge));
+        assertThat(testLoggerResource.getMessages())
+                .noneMatch(logOutput -> logOutput.contains("-- Counter"))
+                .noneMatch(logOutput -> logOutput.contains("-- Gauge"))
+                .noneMatch(logOutput -> logOutput.contains("-- Histogram"))
+                .anyMatch(logOutput -> logOutput.contains("-- Meter"));
+    }
 
-		String expectedGaugeReport = reporter.filterCharacters(HOST_NAME) + delimiter
-			+ reporter.filterCharacters(TASK_MANAGER_ID) + delimiter + reporter.filterCharacters(JOB_NAME) + delimiter
-			+ reporter.filterCharacters(gaugeName) + ": null";
+    @Test
+    void testOnlyGaugeRegistered() {
+        reporter.notifyOfAddedMetric((Gauge<Number>) () -> 4, "metric", metricGroup);
 
-		reporter.report();
-		TestUtils.checkForLogString(expectedGaugeReport);
-	}
+        reporter.report();
 
-	@Test
-	public void testAddMeter() throws Exception {
-		String meterName = "meter";
+        assertThat(testLoggerResource.getMessages())
+                .noneMatch(logOutput -> logOutput.contains("-- Meter"))
+                .noneMatch(logOutput -> logOutput.contains("-- Counter"))
+                .noneMatch(logOutput -> logOutput.contains("-- Histogram"))
+                .anyMatch(logOutput -> logOutput.contains("-- Gauge"));
+    }
 
-		Meter meter = taskMetricGroup.meter(meterName, new MeterView(5));
-		assertTrue(reporter.getMeters().containsKey(meter));
+    @Test
+    void testOnlyHistogramRegistered() {
+        reporter.notifyOfAddedMetric(new TestHistogram(), "metric", metricGroup);
 
-		String expectedMeterReport = reporter.filterCharacters(HOST_NAME) + delimiter
-			+ reporter.filterCharacters(TASK_MANAGER_ID) + delimiter + reporter.filterCharacters(JOB_NAME) + delimiter
-			+ reporter.filterCharacters(meterName) + ": 0.0";
+        reporter.report();
 
-		reporter.report();
-		TestUtils.checkForLogString(expectedMeterReport);
-	}
+        assertThat(testLoggerResource.getMessages())
+                .noneMatch(logOutput -> logOutput.contains("-- Meter"))
+                .noneMatch(logOutput -> logOutput.contains("-- Gauge"))
+                .noneMatch(logOutput -> logOutput.contains("-- Counter"))
+                .anyMatch(logOutput -> logOutput.contains("-- Histogram"));
+    }
 
-	@Test
-	public void testAddHistogram() throws Exception {
-		String histogramName = "histogram";
+    @Test
+    void testAddCounter() throws Exception {
+        String counterName = "simpleCounter";
 
-		Histogram histogram = taskMetricGroup.histogram(histogramName, new TestHistogram());
-		assertTrue(reporter.getHistograms().containsKey(histogram));
+        SimpleCounter counter = new SimpleCounter();
+        reporter.notifyOfAddedMetric(counter, counterName, metricGroup);
 
-		String expectedHistogramName = reporter.filterCharacters(HOST_NAME) + delimiter
-			+ reporter.filterCharacters(TASK_MANAGER_ID) + delimiter + reporter.filterCharacters(JOB_NAME) + delimiter
-			+ reporter.filterCharacters(histogramName);
+        assertThat(reporter.getCounters()).containsKey(counter);
 
-		reporter.report();
-		TestUtils.checkForLogString(expectedHistogramName);
-	}
+        String expectedCounterReport =
+                reporter.filterCharacters(SCOPE)
+                        + delimiter
+                        + reporter.filterCharacters(counterName)
+                        + ": 0";
 
-	@Test
-	public void testFilterCharacters() throws Exception {
-		Slf4jReporter reporter = new Slf4jReporter();
+        reporter.report();
+        assertThat(testLoggerResource.getMessages())
+                .anyMatch(logOutput -> logOutput.contains(expectedCounterReport));
+    }
 
-		assertThat(reporter.filterCharacters(""), equalTo(""));
-		assertThat(reporter.filterCharacters("abc"), equalTo("abc"));
-		assertThat(reporter.filterCharacters("a:b$%^::"), equalTo("a:b$%^::"));
-	}
+    @Test
+    void testAddGauge() throws Exception {
+        String gaugeName = "gauge";
+
+        Gauge<Long> gauge = () -> null;
+        reporter.notifyOfAddedMetric(gauge, gaugeName, metricGroup);
+        assertThat(reporter.getGauges()).containsKey(gauge);
+
+        String expectedGaugeReport =
+                reporter.filterCharacters(SCOPE)
+                        + delimiter
+                        + reporter.filterCharacters(gaugeName)
+                        + ": null";
+
+        reporter.report();
+        assertThat(testLoggerResource.getMessages())
+                .anyMatch(logOutput -> logOutput.contains(expectedGaugeReport));
+    }
+
+    @Test
+    void testAddMeter() throws Exception {
+        String meterName = "meter";
+
+        Meter meter = new MeterView(5);
+        reporter.notifyOfAddedMetric(meter, meterName, metricGroup);
+        assertThat(reporter.getMeters()).containsKey(meter);
+
+        String expectedMeterReport =
+                reporter.filterCharacters(SCOPE)
+                        + delimiter
+                        + reporter.filterCharacters(meterName)
+                        + ": 0.0";
+
+        reporter.report();
+        assertThat(testLoggerResource.getMessages())
+                .anyMatch(logOutput -> logOutput.contains(expectedMeterReport));
+    }
+
+    @Test
+    void testAddHistogram() throws Exception {
+        String histogramName = "histogram";
+
+        Histogram histogram = new TestHistogram();
+        reporter.notifyOfAddedMetric(histogram, histogramName, metricGroup);
+        assertThat(reporter.getHistograms()).containsKey(histogram);
+
+        String expectedHistogramName =
+                reporter.filterCharacters(SCOPE)
+                        + delimiter
+                        + reporter.filterCharacters(histogramName);
+
+        reporter.report();
+        assertThat(testLoggerResource.getMessages())
+                .anyMatch(logOutput -> logOutput.contains(expectedHistogramName));
+    }
+
+    @Test
+    void testFilterCharacters() throws Exception {
+        assertThat(reporter.filterCharacters("")).isEqualTo("");
+        assertThat(reporter.filterCharacters("abc")).isEqualTo("abc");
+        assertThat(reporter.filterCharacters("a:b$%^::")).isEqualTo("a:b$%^::");
+    }
 }

@@ -18,127 +18,173 @@
 
 package org.apache.flink.api.common.typeutils.base;
 
-import org.apache.flink.api.common.typeutils.CompatibilityResult;
-import org.apache.flink.api.common.typeutils.TypeSerializerConfigSnapshot;
-import org.apache.flink.api.common.typeutils.TypeSerializerSerializationUtil;
-import org.apache.flink.core.memory.DataInputViewStreamWrapper;
-import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
-import org.apache.flink.util.TestLogger;
-import org.junit.Assert;
-import org.junit.ClassRule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.apache.flink.FlinkVersion;
+import org.apache.flink.api.common.typeutils.ClassRelocator;
+import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.typeutils.TypeSerializerMatchers;
+import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
+import org.apache.flink.api.common.typeutils.TypeSerializerUpgradeTestBase;
 
-import javax.tools.JavaCompiler;
-import javax.tools.ToolProvider;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
+import org.hamcrest.Description;
+import org.hamcrest.Matcher;
+import org.hamcrest.TypeSafeMatcher;
 
-public class EnumSerializerUpgradeTest extends TestLogger {
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 
-	@ClassRule
-	public static TemporaryFolder temporaryFolder = new TemporaryFolder();
+import static org.apache.flink.api.common.typeutils.base.TestEnum.EMMA;
+import static org.hamcrest.Matchers.is;
 
-	private static final String ENUM_NAME = "EnumSerializerUpgradeTestEnum";
+/** Migration tests for {@link EnumSerializer}. */
+class EnumSerializerUpgradeTest extends TypeSerializerUpgradeTestBase<TestEnum, TestEnum> {
+    private static final String SPEC_NAME = "enum-serializer";
 
-	private static final String ENUM_A = "public enum " + ENUM_NAME + " { A, B, C }";
-	private static final String ENUM_B = "public enum " + ENUM_NAME + " { A, B, C, D }";
-	private static final String ENUM_C = "public enum " + ENUM_NAME + " { A, C }";
-	private static final String ENUM_D = "public enum " + ENUM_NAME + " { A, C, B }";
+    public Collection<TestSpecification<?, ?>> createTestSpecifications() throws Exception {
 
-	/**
-	 * Check that identical enums don't require migration
-	 */
-	@Test
-	public void checkIndenticalEnums() throws Exception {
-		Assert.assertFalse(checkCompatibility(ENUM_A, ENUM_A).isRequiresMigration());
-	}
+        ArrayList<TestSpecification<?, ?>> testSpecifications = new ArrayList<>();
+        for (FlinkVersion flinkVersion : MIGRATION_VERSIONS) {
+            testSpecifications.add(
+                    new TestSpecification<>(
+                            SPEC_NAME,
+                            flinkVersion,
+                            EnumSerializerSetup.class,
+                            EnumSerializerVerifier.class));
+            testSpecifications.add(
+                    new TestSpecification<>(
+                            SPEC_NAME + "reconfig",
+                            flinkVersion,
+                            EnumSerializerReconfigSetup.class,
+                            EnumSerializerReconfigVerifier.class));
+        }
+        return testSpecifications;
+    }
 
-	/**
-	 * Check that appending fields to the enum does not require migration
-	 */
-	@Test
-	public void checkAppendedField() throws Exception {
-		Assert.assertFalse(checkCompatibility(ENUM_A, ENUM_B).isRequiresMigration());
-	}
+    private static Matcher<? extends TypeSerializer<TestEnum>> enumSerializerWith(
+            final TestEnum[] expectedEnumValues) {
+        return new TypeSafeMatcher<EnumSerializer<TestEnum>>() {
 
-	/**
-	 * Check that removing enum fields requires migration
-	 */
-	@Test
-	public void checkRemovedField() throws Exception {
-		Assert.assertTrue(checkCompatibility(ENUM_A, ENUM_C).isRequiresMigration());
-	}
+            @Override
+            protected boolean matchesSafely(EnumSerializer<TestEnum> reconfiguredSerialized) {
+                return Arrays.equals(reconfiguredSerialized.getValues(), expectedEnumValues);
+            }
 
-	/**
-	 * Check that changing the enum field order don't require migration
-	 */
-	@Test
-	public void checkDifferentFieldOrder() throws Exception {
-		Assert.assertFalse(checkCompatibility(ENUM_A, ENUM_D).isRequiresMigration());
-	}
+            @Override
+            public void describeTo(Description description) {
+                description
+                        .appendText("EnumSerializer with values ")
+                        .appendValueList("{", ", ", "}", expectedEnumValues);
+            }
+        };
+    }
 
-	@SuppressWarnings("unchecked")
-	private static CompatibilityResult checkCompatibility(String enumSourceA, String enumSourceB)
-		throws IOException, ClassNotFoundException {
+    // ----------------------------------------------------------------------------------------------
+    //  Specification for "enum-serializer"
+    // ----------------------------------------------------------------------------------------------
 
-		ClassLoader classLoader = compileAndLoadEnum(
-			temporaryFolder.newFolder(), ENUM_NAME + ".java", enumSourceA);
+    /**
+     * This class is only public to work with {@link
+     * org.apache.flink.api.common.typeutils.ClassRelocator}.
+     */
+    public static final class EnumSerializerSetup
+            implements TypeSerializerUpgradeTestBase.PreUpgradeSetup<TestEnum> {
+        @SuppressWarnings("unchecked")
+        @Override
+        public TypeSerializer<TestEnum> createPriorSerializer() {
+            return new EnumSerializer(TestEnum.class);
+        }
 
-		EnumSerializer enumSerializer = new EnumSerializer(classLoader.loadClass(ENUM_NAME));
+        @Override
+        public TestEnum createTestData() {
+            return EMMA;
+        }
+    }
 
-		TypeSerializerConfigSnapshot snapshot = enumSerializer.snapshotConfiguration();
-		byte[] snapshotBytes;
-		try (
-			ByteArrayOutputStream outBuffer = new ByteArrayOutputStream();
-			DataOutputViewStreamWrapper outputViewStreamWrapper = new DataOutputViewStreamWrapper(outBuffer)) {
+    /**
+     * This class is only public to work with {@link
+     * org.apache.flink.api.common.typeutils.ClassRelocator}.
+     */
+    public static final class EnumSerializerVerifier
+            implements TypeSerializerUpgradeTestBase.UpgradeVerifier<TestEnum> {
+        @SuppressWarnings("unchecked")
+        @Override
+        public TypeSerializer<TestEnum> createUpgradedSerializer() {
+            return new EnumSerializer(TestEnum.class);
+        }
 
-			TypeSerializerSerializationUtil.writeSerializerConfigSnapshot(outputViewStreamWrapper, snapshot);
-			snapshotBytes = outBuffer.toByteArray();
-		}
+        @Override
+        public Matcher<TestEnum> testDataMatcher() {
+            return is(EMMA);
+        }
 
-		ClassLoader classLoader2 = compileAndLoadEnum(
-			temporaryFolder.newFolder(), ENUM_NAME + ".java", enumSourceB);
+        @Override
+        public Matcher<TypeSerializerSchemaCompatibility<TestEnum>> schemaCompatibilityMatcher(
+                FlinkVersion version) {
+            return TypeSerializerMatchers.isCompatibleAsIs();
+        }
+    }
 
-		TypeSerializerConfigSnapshot restoredSnapshot;
-		try (
-			ByteArrayInputStream inBuffer = new ByteArrayInputStream(snapshotBytes);
-			DataInputViewStreamWrapper inputViewStreamWrapper = new DataInputViewStreamWrapper(inBuffer)) {
+    /**
+     * This class is only public to work with {@link
+     * org.apache.flink.api.common.typeutils.ClassRelocator}.
+     */
+    public static final class EnumSerializerReconfigSetup
+            implements TypeSerializerUpgradeTestBase.PreUpgradeSetup<
+                    EnumSerializerReconfigSetup.EnumBefore> {
+        @ClassRelocator.RelocateClass("TestEnumSerializerReconfig")
+        public enum EnumBefore {
+            FOO,
+            BAR,
+            PETER,
+            NATHANIEL,
+            EMMA,
+            PAULA
+        }
 
-			restoredSnapshot = TypeSerializerSerializationUtil.readSerializerConfigSnapshot(inputViewStreamWrapper, classLoader2);
-		}
+        @SuppressWarnings("unchecked")
+        @Override
+        public TypeSerializer<EnumBefore> createPriorSerializer() {
+            return new EnumSerializer(EnumBefore.class);
+        }
 
-		EnumSerializer enumSerializer2 = new EnumSerializer(classLoader2.loadClass(ENUM_NAME));
-		return enumSerializer2.ensureCompatibility(restoredSnapshot);
-	}
+        @Override
+        public EnumBefore createTestData() {
+            return EnumBefore.EMMA;
+        }
+    }
 
-	private static ClassLoader compileAndLoadEnum(File root, String filename, String source) throws IOException {
-		File file = writeSourceFile(root, filename, source);
+    /**
+     * This class is only public to work with {@link
+     * org.apache.flink.api.common.typeutils.ClassRelocator}.
+     */
+    public static final class EnumSerializerReconfigVerifier
+            implements TypeSerializerUpgradeTestBase.UpgradeVerifier<
+                    EnumSerializerReconfigVerifier.EnumAfter> {
+        @ClassRelocator.RelocateClass("TestEnumSerializerReconfig")
+        public enum EnumAfter {
+            FOO,
+            BAR,
+            PETER,
+            PAULA,
+            NATHANIEL,
+            EMMA
+        }
 
-		compileClass(file);
+        @SuppressWarnings("unchecked")
+        @Override
+        public TypeSerializer<EnumAfter> createUpgradedSerializer() {
+            return new EnumSerializer(EnumAfter.class);
+        }
 
-		return new URLClassLoader(
-			new URL[]{root.toURI().toURL()},
-			Thread.currentThread().getContextClassLoader());
-	}
+        @Override
+        public Matcher<EnumAfter> testDataMatcher() {
+            return is(EnumAfter.EMMA);
+        }
 
-	private static File writeSourceFile(File root, String filename, String source) throws IOException {
-		File file = new File(root, filename);
-		FileWriter fileWriter = new FileWriter(file);
-
-		fileWriter.write(source);
-		fileWriter.close();
-
-		return file;
-	}
-
-	private static int compileClass(File sourceFile) {
-		JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-		return compiler.run(null, null, null, "-proc:none", sourceFile.getPath());
-	}
+        @Override
+        public Matcher<TypeSerializerSchemaCompatibility<EnumAfter>> schemaCompatibilityMatcher(
+                FlinkVersion version) {
+            return TypeSerializerMatchers.isCompatibleWithReconfiguredSerializer();
+        }
+    }
 }

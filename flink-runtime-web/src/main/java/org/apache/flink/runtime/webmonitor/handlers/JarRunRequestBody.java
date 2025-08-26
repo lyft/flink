@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.webmonitor.handlers;
 
+import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.jobgraph.RestoreMode;
 import org.apache.flink.runtime.rest.messages.RequestBody;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
@@ -27,83 +29,73 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonPro
 
 import javax.annotation.Nullable;
 
-/**
- * {@link RequestBody} for running a jar.
- */
+import java.util.List;
+import java.util.Map;
+
+/** {@link RequestBody} for running a jar. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class JarRunRequestBody implements RequestBody {
+public class JarRunRequestBody extends JarRequestBody {
+    private static final String FIELD_NAME_ALLOW_NON_RESTORED_STATE = "allowNonRestoredState";
+    private static final String FIELD_NAME_SAVEPOINT_PATH = "savepointPath";
+    private static final String FIELD_NAME_SAVEPOINT_RESTORE_MODE = "restoreMode";
 
-	private static final String FIELD_NAME_ENTRY_CLASS = "entryClass";
-	private static final String FIELD_NAME_PROGRAM_ARGUMENTS = "programArgs";
-	private static final String FIELD_NAME_PARALLELISM = "parallelism";
-	private static final String FIELD_NAME_ALLOW_NON_RESTORED_STATE = "allowNonRestoredState";
-	private static final String FIELD_NAME_SAVEPOINT_PATH = "savepointPath";
+    @JsonProperty(FIELD_NAME_ALLOW_NON_RESTORED_STATE)
+    @Nullable
+    private Boolean allowNonRestoredState;
 
-	@JsonProperty(FIELD_NAME_ENTRY_CLASS)
-	@Nullable
-	private String entryClassName;
+    @JsonProperty(FIELD_NAME_SAVEPOINT_PATH)
+    @Nullable
+    private String savepointPath;
 
-	@JsonProperty(FIELD_NAME_PROGRAM_ARGUMENTS)
-	@Nullable
-	private String programArguments;
+    @JsonProperty(FIELD_NAME_SAVEPOINT_RESTORE_MODE)
+    @Nullable
+    private RestoreMode restoreMode;
 
-	@JsonProperty(FIELD_NAME_PARALLELISM)
-	@Nullable
-	private Integer parallelism;
+    public JarRunRequestBody() {
+        this(null, null, null, null, null, null, null, null, null);
+    }
 
-	@JsonProperty(FIELD_NAME_ALLOW_NON_RESTORED_STATE)
-	@Nullable
-	private Boolean allowNonRestoredState;
+    @JsonCreator
+    public JarRunRequestBody(
+            @Nullable @JsonProperty(FIELD_NAME_ENTRY_CLASS) String entryClassName,
+            @Nullable @JsonProperty(FIELD_NAME_PROGRAM_ARGUMENTS) String programArguments,
+            @Nullable @JsonProperty(FIELD_NAME_PROGRAM_ARGUMENTS_LIST)
+                    List<String> programArgumentsList,
+            @Nullable @JsonProperty(FIELD_NAME_PARALLELISM) Integer parallelism,
+            @Nullable @JsonProperty(FIELD_NAME_JOB_ID) JobID jobId,
+            @Nullable @JsonProperty(FIELD_NAME_ALLOW_NON_RESTORED_STATE)
+                    Boolean allowNonRestoredState,
+            @Nullable @JsonProperty(FIELD_NAME_SAVEPOINT_PATH) String savepointPath,
+            @Nullable @JsonProperty(FIELD_NAME_SAVEPOINT_RESTORE_MODE) RestoreMode restoreMode,
+            @Nullable @JsonProperty(FIELD_NAME_FLINK_CONFIGURATION)
+                    Map<String, String> flinkConfiguration) {
+        super(
+                entryClassName,
+                programArguments,
+                programArgumentsList,
+                parallelism,
+                jobId,
+                flinkConfiguration);
+        this.allowNonRestoredState = allowNonRestoredState;
+        this.savepointPath = savepointPath;
+        this.restoreMode = restoreMode;
+    }
 
-	@JsonProperty(FIELD_NAME_SAVEPOINT_PATH)
-	@Nullable
-	private String savepointPath;
+    @Nullable
+    @JsonIgnore
+    public Boolean getAllowNonRestoredState() {
+        return allowNonRestoredState;
+    }
 
-	public JarRunRequestBody() {
-		this(null, null, null, null, null);
-	}
+    @Nullable
+    @JsonIgnore
+    public String getSavepointPath() {
+        return savepointPath;
+    }
 
-	@JsonCreator
-	public JarRunRequestBody(
-			@Nullable @JsonProperty(FIELD_NAME_ENTRY_CLASS) String entryClassName,
-			@Nullable @JsonProperty(FIELD_NAME_PROGRAM_ARGUMENTS) String programArguments,
-			@Nullable @JsonProperty(FIELD_NAME_PARALLELISM) Integer parallelism,
-			@Nullable @JsonProperty(FIELD_NAME_ALLOW_NON_RESTORED_STATE) Boolean allowNonRestoredState,
-			@Nullable @JsonProperty(FIELD_NAME_SAVEPOINT_PATH) String savepointPath) {
-		this.entryClassName = entryClassName;
-		this.programArguments = programArguments;
-		this.parallelism = parallelism;
-		this.allowNonRestoredState = allowNonRestoredState;
-		this.savepointPath = savepointPath;
-	}
-
-	@Nullable
-	@JsonIgnore
-	public String getEntryClassName() {
-		return entryClassName;
-	}
-
-	@Nullable
-	@JsonIgnore
-	public String getProgramArguments() {
-		return programArguments;
-	}
-
-	@Nullable
-	@JsonIgnore
-	public Integer getParallelism() {
-		return parallelism;
-	}
-
-	@Nullable
-	@JsonIgnore
-	public Boolean getAllowNonRestoredState() {
-		return allowNonRestoredState;
-	}
-
-	@Nullable
-	@JsonIgnore
-	public String getSavepointPath() {
-		return savepointPath;
-	}
+    @Nullable
+    @JsonIgnore
+    public RestoreMode getRestoreMode() {
+        return restoreMode;
+    }
 }

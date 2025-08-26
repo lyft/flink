@@ -24,42 +24,29 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Discards every partial match that contains event of the match.
- */
-public class SkipPastLastStrategy extends AfterMatchSkipStrategy {
+/** Discards every partial match that started before emitted match ended. */
+public final class SkipPastLastStrategy extends SkipRelativeToWholeMatchStrategy {
 
-	public static final SkipPastLastStrategy INSTANCE = new SkipPastLastStrategy();
+    public static final SkipPastLastStrategy INSTANCE = new SkipPastLastStrategy();
 
-	private static final long serialVersionUID = -8450320065949093169L;
+    private static final long serialVersionUID = -8450320065949093169L;
 
-	private SkipPastLastStrategy() {
-	}
+    private SkipPastLastStrategy() {}
 
-	@Override
-	public boolean isSkipStrategy() {
-		return true;
-	}
+    @Override
+    protected EventId getPruningId(final Collection<Map<String, List<EventId>>> match) {
+        EventId pruningId = null;
+        for (Map<String, List<EventId>> resultMap : match) {
+            for (List<EventId> eventList : resultMap.values()) {
+                pruningId = max(pruningId, eventList.get(eventList.size() - 1));
+            }
+        }
 
-	@Override
-	protected boolean shouldPrune(EventId startEventID, EventId pruningId) {
-		return startEventID != null && startEventID.compareTo(pruningId) <= 0;
-	}
+        return pruningId;
+    }
 
-	@Override
-	protected EventId getPruningId(final Collection<Map<String, List<EventId>>> match) {
-		EventId pruningId = null;
-		for (Map<String, List<EventId>> resultMap : match) {
-			for (List<EventId> eventList : resultMap.values()) {
-				pruningId = max(pruningId, eventList.get(eventList.size() - 1));
-			}
-		}
-
-		return pruningId;
-	}
-
-	@Override
-	public String toString() {
-		return "SkipPastLastStrategy{}";
-	}
+    @Override
+    public String toString() {
+        return "SkipPastLastStrategy{}";
+    }
 }

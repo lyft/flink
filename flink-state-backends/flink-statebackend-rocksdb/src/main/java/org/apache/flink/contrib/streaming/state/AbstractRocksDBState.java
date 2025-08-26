@@ -20,13 +20,15 @@ package org.apache.flink.contrib.streaming.state;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.core.memory.ByteArrayDataInputView;
-import org.apache.flink.core.memory.ByteArrayDataOutputView;
+import org.apache.flink.core.memory.DataInputDeserializer;
+import org.apache.flink.core.memory.DataOutputSerializer;
 import org.apache.flink.queryablestate.client.state.serialization.KvStateSerializer;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
+import org.apache.flink.runtime.state.SerializedCompositeKeyBuilder;
 import org.apache.flink.runtime.state.internal.InternalKvState;
 import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.StateMigrationException;
 
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDBException;
@@ -37,186 +39,204 @@ import java.io.IOException;
 /**
  * Base class for {@link State} implementations that store state in a RocksDB database.
  *
- * <p>State is not stored in this class but in the {@link org.rocksdb.RocksDB} instance that
- * the {@link RocksDBStateBackend} manages and checkpoints.
+ * <p>State is not stored in this class but in the {@link org.rocksdb.RocksDB} instance that the
+ * {@link EmbeddedRocksDBStateBackend} manages and checkpoints.
  *
  * @param <K> The type of the key.
  * @param <N> The type of the namespace.
  * @param <V> The type of values kept internally in state.
- * @param <S> The type of {@link State}.
  */
-public abstract class AbstractRocksDBState<K, N, V, S extends State> implements InternalKvState<K, N, V>, State {
+public abstract class AbstractRocksDBState<K, N, V> implements InternalKvState<K, N, V>, State {
 
-	/** Serializer for the namespace. */
-	final TypeSerializer<N> namespaceSerializer;
+    /** Serializer for the namespace. */
+    TypeSerializer<N> namespaceSerializer;
 
-	/** Serializer for the state values. */
-	final TypeSerializer<V> valueSerializer;
+    /** Serializer for the state values. */
+    TypeSerializer<V> valueSerializer;
 
-	/** The current namespace, which the next value methods will refer to. */
-	private N currentNamespace;
+    /** The current namespace, which the next value methods will refer to. */
+    private N currentNamespace;
 
-	/** Backend that holds the actual RocksDB instance where we store state. */
-	protected RocksDBKeyedStateBackend<K> backend;
+    /** Backend that holds the actual RocksDB instance where we store state. */
+    protected RocksDBKeyedStateBackend<K> backend;
 
-	/** The column family of this particular instance of state. */
-	protected ColumnFamilyHandle columnFamily;
+    /** The column family of this particular instance of state. */
+    protected ColumnFamilyHandle columnFamily;
 
-	protected final V defaultValue;
+    protected V defaultValue;
 
-	protected final WriteOptions writeOptions;
+    protected final WriteOptions writeOptions;
 
-	protected final ByteArrayDataOutputView dataOutputView;
+    protected final DataOutputSerializer dataOutputView;
 
-	protected final ByteArrayDataInputView dataInputView;
+    protected final DataInputDeserializer dataInputView;
 
-	private final boolean ambiguousKeyPossible;
+    private final SerializedCompositeKeyBuilder<K> sharedKeyNamespaceSerializer;
 
-	/**
-	 * Creates a new RocksDB backed state.
-	 *
-	 * @param columnFamily The RocksDB column family that this state is associated to.
-	 * @param namespaceSerializer The serializer for the namespace.
-	 * @param valueSerializer The serializer for the state.
-	 * @param defaultValue The default value for the state.
-	 * @param backend The backend for which this state is bind to.
-	 */
-	protected AbstractRocksDBState(
-			ColumnFamilyHandle columnFamily,
-			TypeSerializer<N> namespaceSerializer,
-			TypeSerializer<V> valueSerializer,
-			V defaultValue,
-			RocksDBKeyedStateBackend<K> backend) {
+    /**
+     * Creates a new RocksDB backed state.
+     *
+     * @param columnFamily The RocksDB column family that this state is associated to.
+     * @param namespaceSerializer The serializer for the namespace.
+     * @param valueSerializer The serializer for the state.
+     * @param defaultValue The default value for the state.
+     * @param backend The backend for which this state is bind to.
+     */
+    protected AbstractRocksDBState(
+            ColumnFamilyHandle columnFamily,
+            TypeSerializer<N> namespaceSerializer,
+            TypeSerializer<V> valueSerializer,
+            V defaultValue,
+            RocksDBKeyedStateBackend<K> backend) {
 
-		this.namespaceSerializer = namespaceSerializer;
-		this.backend = backend;
+        this.namespaceSerializer = namespaceSerializer;
+        this.backend = backend;
 
-		this.columnFamily = columnFamily;
+        this.columnFamily = columnFamily;
 
-		this.writeOptions = backend.getWriteOptions();
-		this.valueSerializer = Preconditions.checkNotNull(valueSerializer, "State value serializer");
-		this.defaultValue = defaultValue;
+        this.writeOptions = backend.getWriteOptions();
+        this.valueSerializer =
+                Preconditions.checkNotNull(valueSerializer, "State value serializer");
+        this.defaultValue = defaultValue;
 
-		this.dataOutputView = new ByteArrayDataOutputView(128);
-		this.dataInputView = new ByteArrayDataInputView();
-		this.ambiguousKeyPossible =
-			RocksDBKeySerializationUtils.isAmbiguousKeyPossible(backend.getKeySerializer(), namespaceSerializer);
-	}
+        this.dataOutputView = new DataOutputSerializer(128);
+        this.dataInputView = new DataInputDeserializer();
+        this.sharedKeyNamespaceSerializer = backend.getSharedRocksKeyBuilder();
+    }
 
-	// ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
 
-	@Override
-	public void clear() {
-		try {
-			writeCurrentKeyWithGroupAndNamespace();
-			byte[] key = dataOutputView.toByteArray();
-			backend.db.delete(columnFamily, writeOptions, key);
-		} catch (IOException | RocksDBException e) {
-			throw new FlinkRuntimeException("Error while removing entry from RocksDB", e);
-		}
-	}
+    @Override
+    public void clear() {
+        try {
+            backend.db.delete(
+                    columnFamily, writeOptions, serializeCurrentKeyWithGroupAndNamespace());
+        } catch (RocksDBException e) {
+            throw new FlinkRuntimeException("Error while removing entry from RocksDB", e);
+        }
+    }
 
-	@Override
-	public void setCurrentNamespace(N namespace) {
-		this.currentNamespace = Preconditions.checkNotNull(namespace, "Namespace");
-	}
+    @Override
+    public void setCurrentNamespace(N namespace) {
+        this.currentNamespace = namespace;
+    }
 
-	@Override
-	public byte[] getSerializedValue(
-			final byte[] serializedKeyAndNamespace,
-			final TypeSerializer<K> safeKeySerializer,
-			final TypeSerializer<N> safeNamespaceSerializer,
-			final TypeSerializer<V> safeValueSerializer) throws Exception {
+    @Override
+    public byte[] getSerializedValue(
+            final byte[] serializedKeyAndNamespace,
+            final TypeSerializer<K> safeKeySerializer,
+            final TypeSerializer<N> safeNamespaceSerializer,
+            final TypeSerializer<V> safeValueSerializer)
+            throws Exception {
 
-		Preconditions.checkNotNull(serializedKeyAndNamespace);
-		Preconditions.checkNotNull(safeKeySerializer);
-		Preconditions.checkNotNull(safeNamespaceSerializer);
-		Preconditions.checkNotNull(safeValueSerializer);
+        // TODO make KvStateSerializer key-group aware to save this round trip and key-group
+        // computation
+        Tuple2<K, N> keyAndNamespace =
+                KvStateSerializer.deserializeKeyAndNamespace(
+                        serializedKeyAndNamespace, safeKeySerializer, safeNamespaceSerializer);
 
-		//TODO make KvStateSerializer key-group aware to save this round trip and key-group computation
-		Tuple2<K, N> keyAndNamespace = KvStateSerializer.deserializeKeyAndNamespace(
-				serializedKeyAndNamespace, safeKeySerializer, safeNamespaceSerializer);
+        int keyGroup =
+                KeyGroupRangeAssignment.assignToKeyGroup(
+                        keyAndNamespace.f0, backend.getNumberOfKeyGroups());
 
-		int keyGroup = KeyGroupRangeAssignment.assignToKeyGroup(keyAndNamespace.f0, backend.getNumberOfKeyGroups());
+        SerializedCompositeKeyBuilder<K> keyBuilder =
+                new SerializedCompositeKeyBuilder<>(
+                        safeKeySerializer, backend.getKeyGroupPrefixBytes(), 32);
+        keyBuilder.setKeyAndKeyGroup(keyAndNamespace.f0, keyGroup);
+        byte[] key = keyBuilder.buildCompositeKeyNamespace(keyAndNamespace.f1, namespaceSerializer);
+        return backend.db.get(columnFamily, key);
+    }
 
-		// we cannot reuse the keySerializationStream member since this method
-		// is called concurrently to the other ones and it may thus contain garbage
-		ByteArrayDataOutputView tmpKeySerializationView = new ByteArrayDataOutputView(128);
+    <UK> byte[] serializeCurrentKeyWithGroupAndNamespacePlusUserKey(
+            UK userKey, TypeSerializer<UK> userKeySerializer) throws IOException {
+        return sharedKeyNamespaceSerializer.buildCompositeKeyNamesSpaceUserKey(
+                currentNamespace, namespaceSerializer, userKey, userKeySerializer);
+    }
 
-		writeKeyWithGroupAndNamespace(
-				keyGroup,
-				keyAndNamespace.f0,
-				safeKeySerializer,
-				keyAndNamespace.f1,
-				safeNamespaceSerializer,
-				tmpKeySerializationView);
+    private <T> byte[] serializeValueInternal(T value, TypeSerializer<T> serializer)
+            throws IOException {
+        serializer.serialize(value, dataOutputView);
+        return dataOutputView.getCopyOfBuffer();
+    }
 
-		return backend.db.get(columnFamily, tmpKeySerializationView.toByteArray());
-	}
+    byte[] serializeCurrentKeyWithGroupAndNamespace() {
+        return sharedKeyNamespaceSerializer.buildCompositeKeyNamespace(
+                currentNamespace, namespaceSerializer);
+    }
 
-	byte[] getKeyBytes() {
-		try {
-			writeCurrentKeyWithGroupAndNamespace();
-			return dataOutputView.toByteArray();
-		} catch (IOException e) {
-			throw new FlinkRuntimeException("Error while serializing key", e);
-		}
-	}
+    byte[] serializeValue(V value) throws IOException {
+        return serializeValue(value, valueSerializer);
+    }
 
-	byte[] getValueBytes(V value) {
-		try {
-			dataOutputView.reset();
-			valueSerializer.serialize(value, dataOutputView);
-			return dataOutputView.toByteArray();
-		} catch (IOException e) {
-			throw new FlinkRuntimeException("Error while serializing value", e);
-		}
-	}
+    <T> byte[] serializeValueNullSensitive(T value, TypeSerializer<T> serializer)
+            throws IOException {
+        dataOutputView.clear();
+        dataOutputView.writeBoolean(value == null);
+        return serializeValueInternal(value, serializer);
+    }
 
-	protected void writeCurrentKeyWithGroupAndNamespace() throws IOException {
-		writeKeyWithGroupAndNamespace(
-			backend.getCurrentKeyGroupIndex(),
-			backend.getCurrentKey(),
-			currentNamespace,
-			dataOutputView);
-	}
+    <T> byte[] serializeValue(T value, TypeSerializer<T> serializer) throws IOException {
+        dataOutputView.clear();
+        return serializeValueInternal(value, serializer);
+    }
 
-	protected void writeKeyWithGroupAndNamespace(
-			int keyGroup, K key, N namespace,
-			ByteArrayDataOutputView keySerializationDataOutputView) throws IOException {
+    public void migrateSerializedValue(
+            DataInputDeserializer serializedOldValueInput,
+            DataOutputSerializer serializedMigratedValueOutput,
+            TypeSerializer<V> priorSerializer,
+            TypeSerializer<V> newSerializer)
+            throws StateMigrationException {
 
-		writeKeyWithGroupAndNamespace(
-				keyGroup,
-				key,
-				backend.getKeySerializer(),
-				namespace,
-				namespaceSerializer,
-				keySerializationDataOutputView);
-	}
+        try {
+            V value = priorSerializer.deserialize(serializedOldValueInput);
+            newSerializer.serialize(value, serializedMigratedValueOutput);
+        } catch (Exception e) {
+            throw new StateMigrationException("Error while trying to migrate RocksDB state.", e);
+        }
+    }
 
-	protected void writeKeyWithGroupAndNamespace(
-			final int keyGroup,
-			final K key,
-			final TypeSerializer<K> keySerializer,
-			final N namespace,
-			final TypeSerializer<N> namespaceSerializer,
-			final ByteArrayDataOutputView keySerializationDataOutputView) throws IOException {
+    byte[] getKeyBytes() {
+        return serializeCurrentKeyWithGroupAndNamespace();
+    }
 
-		Preconditions.checkNotNull(key, "No key set. This method should not be called outside of a keyed context.");
-		Preconditions.checkNotNull(keySerializer);
-		Preconditions.checkNotNull(namespaceSerializer);
+    byte[] getValueBytes(V value) {
+        try {
+            dataOutputView.clear();
+            valueSerializer.serialize(value, dataOutputView);
+            return dataOutputView.getCopyOfBuffer();
+        } catch (IOException e) {
+            throw new FlinkRuntimeException("Error while serializing value", e);
+        }
+    }
 
-		keySerializationDataOutputView.reset();
-		RocksDBKeySerializationUtils.writeKeyGroup(keyGroup, backend.getKeyGroupPrefixBytes(), keySerializationDataOutputView);
-		RocksDBKeySerializationUtils.writeKey(key, keySerializer, keySerializationDataOutputView, ambiguousKeyPossible);
-		RocksDBKeySerializationUtils.writeNameSpace(namespace, namespaceSerializer, keySerializationDataOutputView, ambiguousKeyPossible);
-	}
+    protected V getDefaultValue() {
+        if (defaultValue != null) {
+            return valueSerializer.copy(defaultValue);
+        } else {
+            return null;
+        }
+    }
 
-	protected V getDefaultValue() {
-		if (defaultValue != null) {
-			return valueSerializer.copy(defaultValue);
-		} else {
-			return null;
-		}
-	}
+    protected AbstractRocksDBState<K, N, V> setNamespaceSerializer(
+            TypeSerializer<N> namespaceSerializer) {
+        this.namespaceSerializer = namespaceSerializer;
+        return this;
+    }
+
+    protected AbstractRocksDBState<K, N, V> setValueSerializer(TypeSerializer<V> valueSerializer) {
+        this.valueSerializer = valueSerializer;
+        return this;
+    }
+
+    protected AbstractRocksDBState<K, N, V> setDefaultValue(V defaultValue) {
+        this.defaultValue = defaultValue;
+        return this;
+    }
+
+    @Override
+    public StateIncrementalVisitor<K, N, V> getStateIncrementalVisitor(
+            int recommendedMaxNumberOfReturnedRecords) {
+        throw new UnsupportedOperationException(
+                "Global state entry iterator is unsupported for RocksDb backend");
+    }
 }

@@ -20,23 +20,24 @@ package org.apache.flink.runtime.executiongraph.utils;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.time.Time;
-import org.apache.flink.runtime.blob.TransientBlobKey;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
-import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
-import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.PartitionInfo;
-import org.apache.flink.runtime.instance.InstanceID;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
+import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.StackTrace;
-import org.apache.flink.runtime.messages.StackTraceSampleResponse;
+import org.apache.flink.runtime.operators.coordination.OperatorEvent;
+import org.apache.flink.util.SerializedValue;
+import org.apache.flink.util.function.TriConsumer;
 
-import java.util.Optional;
+import java.util.Collection;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
@@ -46,116 +47,141 @@ import java.util.function.Consumer;
  */
 public class SimpleAckingTaskManagerGateway implements TaskManagerGateway {
 
-	private final String address = UUID.randomUUID().toString();
+    private final String address = UUID.randomUUID().toString();
 
-	private Optional<Consumer<ExecutionAttemptID>> optSubmitConsumer;
+    private Consumer<TaskDeploymentDescriptor> submitConsumer = ignore -> {};
 
-	private Optional<Consumer<ExecutionAttemptID>> optCancelConsumer;
+    private Consumer<ExecutionAttemptID> cancelConsumer = ignore -> {};
 
-	private volatile BiFunction<AllocationID, Throwable, CompletableFuture<Acknowledge>> freeSlotFunction;
+    private volatile BiFunction<AllocationID, Throwable, CompletableFuture<Acknowledge>>
+            freeSlotFunction;
 
-	public SimpleAckingTaskManagerGateway() {
-		optSubmitConsumer = Optional.empty();
-		optCancelConsumer = Optional.empty();
-	}
+    private BiConsumer<JobID, Collection<ResultPartitionID>> releasePartitionsConsumer =
+            (ignore1, ignore2) -> {};
 
-	public void setSubmitConsumer(Consumer<ExecutionAttemptID> predicate) {
-		optSubmitConsumer = Optional.of(predicate);
-	}
+    private CheckpointConsumer checkpointConsumer =
+            (executionAttemptID, jobId, checkpointId, timestamp, checkpointOptions) -> {};
 
-	public void setCancelConsumer(Consumer<ExecutionAttemptID> predicate) {
-		optCancelConsumer = Optional.of(predicate);
-	}
+    private TriConsumer<ExecutionAttemptID, Iterable<PartitionInfo>, Time>
+            updatePartitionsConsumer = (ignore1, ignore2, ignore3) -> {};
 
-	public void setFreeSlotFunction(BiFunction<AllocationID, Throwable, CompletableFuture<Acknowledge>> freeSlotFunction) {
-		this.freeSlotFunction = freeSlotFunction;
-	}
+    public void setSubmitConsumer(Consumer<TaskDeploymentDescriptor> submitConsumer) {
+        this.submitConsumer = submitConsumer;
+    }
 
-	@Override
-	public String getAddress() {
-		return address;
-	}
+    public void setCancelConsumer(Consumer<ExecutionAttemptID> cancelConsumer) {
+        this.cancelConsumer = cancelConsumer;
+    }
 
-	@Override
-	public void disconnectFromJobManager(InstanceID instanceId, Exception cause) {}
+    public void setFreeSlotFunction(
+            BiFunction<AllocationID, Throwable, CompletableFuture<Acknowledge>> freeSlotFunction) {
+        this.freeSlotFunction = freeSlotFunction;
+    }
 
-	@Override
-	public void stopCluster(ApplicationStatus applicationStatus, String message) {}
+    public void setReleasePartitionsConsumer(
+            BiConsumer<JobID, Collection<ResultPartitionID>> releasePartitionsConsumer) {
+        this.releasePartitionsConsumer = releasePartitionsConsumer;
+    }
 
-	@Override
-	public CompletableFuture<StackTrace> requestStackTrace(Time timeout) {
-		return FutureUtils.completedExceptionally(new UnsupportedOperationException());
-	}
+    public void setCheckpointConsumer(CheckpointConsumer checkpointConsumer) {
+        this.checkpointConsumer = checkpointConsumer;
+    }
 
-	@Override
-	public CompletableFuture<StackTraceSampleResponse> requestStackTraceSample(
-			ExecutionAttemptID executionAttemptID,
-			int sampleId,
-			int numSamples,
-			Time delayBetweenSamples,
-			int maxStackTraceDepth,
-			Time timeout) {
-		return FutureUtils.completedExceptionally(new UnsupportedOperationException());
-	}
+    public void setUpdatePartitionsConsumer(
+            TriConsumer<ExecutionAttemptID, Iterable<PartitionInfo>, Time>
+                    updatePartitionsConsumer) {
+        this.updatePartitionsConsumer = updatePartitionsConsumer;
+    }
 
-	@Override
-	public CompletableFuture<Acknowledge> submitTask(TaskDeploymentDescriptor tdd, Time timeout) {
-		optSubmitConsumer.ifPresent(condition -> condition.accept(tdd.getExecutionAttemptId()));
-		return CompletableFuture.completedFuture(Acknowledge.get());
-	}
+    @Override
+    public String getAddress() {
+        return address;
+    }
 
-	@Override
-	public CompletableFuture<Acknowledge> stopTask(ExecutionAttemptID executionAttemptID, Time timeout) {
-		return CompletableFuture.completedFuture(Acknowledge.get());
-	}
+    @Override
+    public CompletableFuture<Acknowledge> submitTask(TaskDeploymentDescriptor tdd, Time timeout) {
+        submitConsumer.accept(tdd);
+        return CompletableFuture.completedFuture(Acknowledge.get());
+    }
 
-	@Override
-	public CompletableFuture<Acknowledge> cancelTask(ExecutionAttemptID executionAttemptID, Time timeout) {
-		optCancelConsumer.ifPresent(condition -> condition.accept(executionAttemptID));
-		return CompletableFuture.completedFuture(Acknowledge.get());
-	}
+    @Override
+    public CompletableFuture<Acknowledge> cancelTask(
+            ExecutionAttemptID executionAttemptID, Time timeout) {
+        cancelConsumer.accept(executionAttemptID);
+        return CompletableFuture.completedFuture(Acknowledge.get());
+    }
 
-	@Override
-	public CompletableFuture<Acknowledge> updatePartitions(ExecutionAttemptID executionAttemptID, Iterable<PartitionInfo> partitionInfos, Time timeout) {
-		return CompletableFuture.completedFuture(Acknowledge.get());
-	}
+    @Override
+    public CompletableFuture<Acknowledge> updatePartitions(
+            ExecutionAttemptID executionAttemptID,
+            Iterable<PartitionInfo> partitionInfos,
+            Time timeout) {
+        updatePartitionsConsumer.accept(executionAttemptID, partitionInfos, timeout);
+        return CompletableFuture.completedFuture(Acknowledge.get());
+    }
 
-	@Override
-	public void failPartition(ExecutionAttemptID executionAttemptID) {}
+    @Override
+    public void releasePartitions(JobID jobId, Set<ResultPartitionID> partitionIds) {
+        releasePartitionsConsumer.accept(jobId, partitionIds);
+    }
 
-	@Override
-	public void notifyCheckpointComplete(
-			ExecutionAttemptID executionAttemptID,
-			JobID jobId,
-			long checkpointId,
-			long timestamp) {}
+    @Override
+    public void notifyCheckpointOnComplete(
+            ExecutionAttemptID executionAttemptID,
+            JobID jobId,
+            long completedCheckpointId,
+            long completedTimestamp,
+            long lastSubsumedCheckpointId) {}
 
-	@Override
-	public void triggerCheckpoint(
-			ExecutionAttemptID executionAttemptID,
-			JobID jobId,
-			long checkpointId,
-			long timestamp,
-			CheckpointOptions checkpointOptions) {}
+    @Override
+    public void notifyCheckpointAborted(
+            ExecutionAttemptID executionAttemptID,
+            JobID jobId,
+            long checkpointId,
+            long latestCompletedCheckpointId,
+            long timestamp) {}
 
-	@Override
-	public CompletableFuture<TransientBlobKey> requestTaskManagerLog(Time timeout) {
-		return FutureUtils.completedExceptionally(new UnsupportedOperationException());
-	}
+    @Override
+    public CompletableFuture<Acknowledge> triggerCheckpoint(
+            ExecutionAttemptID executionAttemptID,
+            JobID jobId,
+            long checkpointId,
+            long timestamp,
+            CheckpointOptions checkpointOptions) {
 
-	@Override
-	public CompletableFuture<TransientBlobKey> requestTaskManagerStdout(Time timeout) {
-		return FutureUtils.completedExceptionally(new UnsupportedOperationException());
-	}
+        checkpointConsumer.accept(
+                executionAttemptID, jobId, checkpointId, timestamp, checkpointOptions);
+        return CompletableFuture.completedFuture(Acknowledge.get());
+    }
 
-	@Override
-	public CompletableFuture<Acknowledge> freeSlot(AllocationID allocationId, Throwable cause, Time timeout) {
-		final BiFunction<AllocationID, Throwable, CompletableFuture<Acknowledge>> currentFreeSlotFunction = freeSlotFunction;
+    @Override
+    public CompletableFuture<Acknowledge> sendOperatorEventToTask(
+            ExecutionAttemptID task, OperatorID operator, SerializedValue<OperatorEvent> evt) {
 
-		if (currentFreeSlotFunction != null) {
-			return currentFreeSlotFunction.apply(allocationId, cause);
-		} else {
-			return CompletableFuture.completedFuture(Acknowledge.get());
-		}
-	}
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public CompletableFuture<Acknowledge> freeSlot(
+            AllocationID allocationId, Throwable cause, Time timeout) {
+        final BiFunction<AllocationID, Throwable, CompletableFuture<Acknowledge>>
+                currentFreeSlotFunction = freeSlotFunction;
+
+        if (currentFreeSlotFunction != null) {
+            return currentFreeSlotFunction.apply(allocationId, cause);
+        } else {
+            return CompletableFuture.completedFuture(Acknowledge.get());
+        }
+    }
+
+    /** Consumer that accepts checkpoint trigger information. */
+    public interface CheckpointConsumer {
+
+        void accept(
+                ExecutionAttemptID executionAttemptID,
+                JobID jobId,
+                long checkpointId,
+                long timestamp,
+                CheckpointOptions checkpointOptions);
+    }
 }

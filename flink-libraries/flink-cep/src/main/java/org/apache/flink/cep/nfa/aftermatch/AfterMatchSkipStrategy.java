@@ -20,7 +20,7 @@ package org.apache.flink.cep.nfa.aftermatch;
 
 import org.apache.flink.cep.nfa.ComputationState;
 import org.apache.flink.cep.nfa.sharedbuffer.EventId;
-import org.apache.flink.cep.nfa.sharedbuffer.SharedBuffer;
+import org.apache.flink.cep.nfa.sharedbuffer.SharedBufferAccessor;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -29,127 +29,155 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-
-/**
- * Indicate the skip strategy after a match process.
- */
+/** Indicate the skip strategy after a match process. */
 public abstract class AfterMatchSkipStrategy implements Serializable {
 
-	private static final long serialVersionUID = -4048930333619068531L;
+    private static final long serialVersionUID = -4048930333619068531L;
 
-	/**
-	 * Discards every partial match that contains event of the match preceding the first of *PatternName*.
-	 *
-	 * @param patternName the pattern name to skip to
-	 * @return the created AfterMatchSkipStrategy
-	 */
-	public static AfterMatchSkipStrategy skipToFirst(String patternName) {
-		return new SkipToFirstStrategy(patternName);
-	}
+    /**
+     * Discards every partial match that started before the first event of emitted match mapped to
+     * *PatternName*.
+     *
+     * @param patternName the pattern name to skip to
+     * @return the created AfterMatchSkipStrategy
+     */
+    public static SkipToFirstStrategy skipToFirst(String patternName) {
+        return new SkipToFirstStrategy(patternName, false);
+    }
 
-	/**
-	 * Discards every partial match that contains event of the match preceding the last of *PatternName*.
-	 *
-	 * @param patternName the pattern name to skip to
-	 * @return the created AfterMatchSkipStrategy
-	 */
-	public static AfterMatchSkipStrategy skipToLast(String patternName) {
-		return new SkipToLastStrategy(patternName);
-	}
+    /**
+     * Discards every partial match that started before the last event of emitted match mapped to
+     * *PatternName*.
+     *
+     * @param patternName the pattern name to skip to
+     * @return the created AfterMatchSkipStrategy
+     */
+    public static SkipToLastStrategy skipToLast(String patternName) {
+        return new SkipToLastStrategy(patternName, false);
+    }
 
-	/**
-	 * Discards every partial match that contains event of the match.
-	 *
-	 * @return the created AfterMatchSkipStrategy
-	 */
-	public static AfterMatchSkipStrategy skipPastLastEvent() {
-		return SkipPastLastStrategy.INSTANCE;
-	}
+    /**
+     * Discards every partial match that started before emitted match ended.
+     *
+     * @return the created AfterMatchSkipStrategy
+     */
+    public static SkipPastLastStrategy skipPastLastEvent() {
+        return SkipPastLastStrategy.INSTANCE;
+    }
 
-	/**
-	 * Every possible match will be emitted.
-	 *
-	 * @return the created AfterMatchSkipStrategy
-	 */
-	public static AfterMatchSkipStrategy noSkip() {
-		return NoSkipStrategy.INSTANCE;
-	}
+    /**
+     * Discards every partial match that started with the same event, emitted match was started.
+     *
+     * @return the created AfterMatchSkipStrategy
+     */
+    public static AfterMatchSkipStrategy skipToNext() {
+        return SkipToNextStrategy.INSTANCE;
+    }
 
-	/**
-	 * Tells if the strategy may skip some matches.
-	 *
-	 * @return false if the strategy is NO_SKIP strategy
-	 */
-	public abstract boolean isSkipStrategy();
+    /**
+     * Every possible match will be emitted.
+     *
+     * @return the created AfterMatchSkipStrategy
+     */
+    public static NoSkipStrategy noSkip() {
+        return NoSkipStrategy.INSTANCE;
+    }
 
-	/**
-	 * Prunes matches/partial matches based on the chosen strategy.
-	 *
-	 * @param matchesToPrune current partial matches
-	 * @param matchedResult  already completed matches
-	 * @param sharedBuffer   corresponding shared buffer
-	 * @throws Exception thrown if could not access the state
-	 */
-	public void prune(
-			Collection<ComputationState> matchesToPrune,
-			Collection<Map<String, List<EventId>>> matchedResult,
-			SharedBuffer<?> sharedBuffer) throws Exception {
+    /**
+     * Tells if the strategy may skip some matches.
+     *
+     * @return false if the strategy is NO_SKIP strategy
+     */
+    public abstract boolean isSkipStrategy();
 
-		EventId pruningId = getPruningId(matchedResult);
-		if (pruningId != null) {
-			List<ComputationState> discardStates = new ArrayList<>();
-			for (ComputationState computationState : matchesToPrune) {
-				if (computationState.getStartEventID() != null &&
-					shouldPrune(computationState.getStartEventID(), pruningId)) {
-					sharedBuffer.releaseNode(computationState.getPreviousBufferEntry());
-					discardStates.add(computationState);
-				}
-			}
-			matchesToPrune.removeAll(discardStates);
-		}
-	}
+    /**
+     * Prunes matches/partial matches based on the chosen strategy.
+     *
+     * @param matchesToPrune current partial matches
+     * @param matchedResult already completed matches
+     * @param sharedBufferAccessor accessor to corresponding shared buffer
+     * @throws Exception thrown if could not access the state
+     */
+    public void prune(
+            Collection<ComputationState> matchesToPrune,
+            Collection<Map<String, List<EventId>>> matchedResult,
+            SharedBufferAccessor<?> sharedBufferAccessor)
+            throws Exception {
+        if (!isSkipStrategy()) {
+            return;
+        }
 
-	/**
-	 * Tells if the partial/completed match starting at given id should be prunned by given pruningId.
-	 *
-	 * @param startEventID starting event id of a partial/completed match
-	 * @param pruningId   pruningId calculated by this strategy
-	 * @return true if the match should be pruned
-	 */
-	protected abstract boolean shouldPrune(EventId startEventID, EventId pruningId);
+        EventId pruningId = getPruningId(matchedResult);
+        if (pruningId != null) {
+            List<ComputationState> discardStates = new ArrayList<>();
+            for (ComputationState computationState : matchesToPrune) {
+                if (computationState.getStartEventID() != null
+                        && shouldPrune(computationState.getStartEventID(), pruningId)) {
+                    sharedBufferAccessor.releaseNode(
+                            computationState.getPreviousBufferEntry(),
+                            computationState.getVersion());
+                    discardStates.add(computationState);
+                }
+            }
+            matchesToPrune.removeAll(discardStates);
+        }
+    }
 
-	/**
-	 * Retrieves event id of the pruning element from the given match based on the strategy.
-	 *
-	 * @param match match corresponding to which should the pruning happen
-	 * @return pruning event id
-	 */
-	protected abstract EventId getPruningId(Collection<Map<String, List<EventId>>> match);
+    /**
+     * Tells if the partial/completed match starting at given id should be prunned by given
+     * pruningId.
+     *
+     * @param startEventID starting event id of a partial/completed match
+     * @param pruningId pruningId calculated by this strategy
+     * @return true if the match should be pruned
+     */
+    protected abstract boolean shouldPrune(EventId startEventID, EventId pruningId);
 
-	/**
-	 * Name of pattern that processing will be skipped to.
-	 */
-	public Optional<String> getPatternName() {
-		return Optional.empty();
-	}
+    /**
+     * Retrieves event id of the pruning element from the given match based on the strategy.
+     *
+     * @param match match corresponding to which should the pruning happen
+     * @return pruning event id
+     */
+    protected abstract EventId getPruningId(Collection<Map<String, List<EventId>>> match);
 
-	static EventId max(EventId o1, EventId o2) {
-		if (o2 == null) {
-			return o1;
-		}
+    /** Name of pattern that processing will be skipped to. */
+    public Optional<String> getPatternName() {
+        return Optional.empty();
+    }
 
-		if (o1 == null) {
-			return o2;
-		}
+    static EventId max(EventId o1, EventId o2) {
+        if (o2 == null) {
+            return o1;
+        }
 
-		if (o1.compareTo(o2) >= 0) {
-			return o1;
-		} else {
-			return o2;
-		}
-	}
+        if (o1 == null) {
+            return o2;
+        }
 
-	/** Forbid further extending. */
-	AfterMatchSkipStrategy() {
-	}
+        if (o1.compareTo(o2) >= 0) {
+            return o1;
+        } else {
+            return o2;
+        }
+    }
+
+    static EventId min(EventId o1, EventId o2) {
+        if (o2 == null) {
+            return o1;
+        }
+
+        if (o1 == null) {
+            return o2;
+        }
+
+        if (o1.compareTo(o2) <= 0) {
+            return o1;
+        } else {
+            return o2;
+        }
+    }
+
+    /** Forbid further extending. */
+    AfterMatchSkipStrategy() {}
 }

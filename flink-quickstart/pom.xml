@@ -23,19 +23,17 @@ under the License.
 	<parent>
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-parent</artifactId>
-		<version>1.7-SNAPSHOT</version>
-		<relativePath>..</relativePath>
+		<version>1.17-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>flink-quickstart</artifactId>
 	<packaging>pom</packaging>
 
-	<name>flink-quickstart</name>
+	<name>Flink : Quickstart : </name>
 	<description>Parent project for different quickstart archetypes for Apache Flink</description>
 
 	<modules>
 		<module>flink-quickstart-java</module>
-		<module>flink-quickstart-scala</module>
 	</modules>
 	<build>
 		<extensions>

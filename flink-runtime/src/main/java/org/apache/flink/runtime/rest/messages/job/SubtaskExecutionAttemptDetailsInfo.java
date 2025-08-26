@@ -18,8 +18,11 @@
 
 package org.apache.flink.runtime.rest.messages.job;
 
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.AccessExecution;
+import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.rest.handler.legacy.metrics.MetricFetcher;
 import org.apache.flink.runtime.rest.handler.util.MutableIOMetrics;
 import org.apache.flink.runtime.rest.messages.ResponseBody;
 import org.apache.flink.runtime.rest.messages.job.metrics.IOMetricsInfo;
@@ -27,167 +30,260 @@ import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.util.Preconditions;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonInclude;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonInclude.Include;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
+import io.swagger.v3.oas.annotations.Hidden;
+
+import javax.annotation.Nullable;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
-/**
- * The sub task execution attempt response.
- */
+import static org.apache.flink.runtime.rest.messages.job.StatusDurationUtils.getExecutionStateDuration;
+
+/** The sub task execution attempt response. */
 public class SubtaskExecutionAttemptDetailsInfo implements ResponseBody {
 
-	public static final String FIELD_NAME_SUBTASK_INDEX = "subtask";
+    public static final String FIELD_NAME_SUBTASK_INDEX = "subtask";
 
-	public static final String FIELD_NAME_STATUS = "status";
+    public static final String FIELD_NAME_STATUS = "status";
 
-	public static final String FIELD_NAME_ATTEMPT = "attempt";
+    public static final String FIELD_NAME_ATTEMPT = "attempt";
 
-	public static final String FIELD_NAME_HOST = "host";
+    public static final String FIELD_NAME_HOST = "host";
 
-	public static final String FIELD_NAME_START_TIME = "start-time";
+    public static final String FIELD_NAME_START_TIME = "start-time";
 
-	public static final String FIELD_NAME_END_TIME = "end-time";
+    public static final String FIELD_NAME_COMPATIBLE_START_TIME = "start_time";
 
-	public static final String FIELD_NAME_DURATION = "duration";
+    public static final String FIELD_NAME_END_TIME = "end-time";
 
-	public static final String FIELD_NAME_METRICS = "metrics";
+    public static final String FIELD_NAME_DURATION = "duration";
 
-	@JsonProperty(FIELD_NAME_SUBTASK_INDEX)
-	private final int subtaskIndex;
+    public static final String FIELD_NAME_METRICS = "metrics";
 
-	@JsonProperty(FIELD_NAME_STATUS)
-	private final ExecutionState status;
+    public static final String FIELD_NAME_TASKMANAGER_ID = "taskmanager-id";
 
-	@JsonProperty(FIELD_NAME_ATTEMPT)
-	private final int attempt;
+    public static final String FIELD_NAME_STATUS_DURATION = "status-duration";
 
-	@JsonProperty(FIELD_NAME_HOST)
-	private final String host;
+    public static final String FIELD_NAME_OTHER_CONCURRENT_ATTEMPTS = "other-concurrent-attempts";
 
-	@JsonProperty(FIELD_NAME_START_TIME)
-	private final long startTime;
+    @JsonProperty(FIELD_NAME_SUBTASK_INDEX)
+    private final int subtaskIndex;
 
-	@JsonProperty(FIELD_NAME_END_TIME)
-	private final long endTime;
+    @JsonProperty(FIELD_NAME_STATUS)
+    private final ExecutionState status;
 
-	@JsonProperty(FIELD_NAME_DURATION)
-	private final long duration;
+    @JsonProperty(FIELD_NAME_ATTEMPT)
+    private final int attempt;
 
-	@JsonProperty(FIELD_NAME_METRICS)
-	private final IOMetricsInfo ioMetricsInfo;
+    @JsonProperty(FIELD_NAME_HOST)
+    private final String host;
 
-	@JsonCreator
-	public SubtaskExecutionAttemptDetailsInfo(
-			@JsonProperty(FIELD_NAME_SUBTASK_INDEX) int subtaskIndex,
-			@JsonProperty(FIELD_NAME_STATUS) ExecutionState status,
-			@JsonProperty(FIELD_NAME_ATTEMPT) int attempt,
-			@JsonProperty(FIELD_NAME_HOST) String host,
-			@JsonProperty(FIELD_NAME_START_TIME) long startTime,
-			@JsonProperty(FIELD_NAME_END_TIME) long endTime,
-			@JsonProperty(FIELD_NAME_DURATION) long duration,
-			@JsonProperty(FIELD_NAME_METRICS) IOMetricsInfo ioMetricsInfo) {
+    @JsonProperty(FIELD_NAME_START_TIME)
+    private final long startTime;
 
-		this.subtaskIndex = subtaskIndex;
-		this.status = Preconditions.checkNotNull(status);
-		this.attempt = attempt;
-		this.host = Preconditions.checkNotNull(host);
-		this.startTime = startTime;
-		this.endTime = endTime;
-		this.duration = duration;
-		this.ioMetricsInfo = Preconditions.checkNotNull(ioMetricsInfo);
-	}
+    @Hidden
+    @JsonProperty(FIELD_NAME_COMPATIBLE_START_TIME)
+    private final long startTimeCompatible;
 
-	public int getSubtaskIndex() {
-		return subtaskIndex;
-	}
+    @JsonProperty(FIELD_NAME_END_TIME)
+    private final long endTime;
 
-	public ExecutionState getStatus() {
-		return status;
-	}
+    @JsonProperty(FIELD_NAME_DURATION)
+    private final long duration;
 
-	public int getAttempt() {
-		return attempt;
-	}
+    @JsonProperty(FIELD_NAME_METRICS)
+    private final IOMetricsInfo ioMetricsInfo;
 
-	public String getHost() {
-		return host;
-	}
+    @JsonProperty(FIELD_NAME_TASKMANAGER_ID)
+    private final String taskmanagerId;
 
-	public long getStartTime() {
-		return startTime;
-	}
+    @JsonProperty(FIELD_NAME_STATUS_DURATION)
+    private final Map<ExecutionState, Long> statusDuration;
 
-	public long getEndTime() {
-		return endTime;
-	}
+    @JsonProperty(FIELD_NAME_OTHER_CONCURRENT_ATTEMPTS)
+    @JsonInclude(Include.NON_EMPTY)
+    @Nullable
+    private final List<SubtaskExecutionAttemptDetailsInfo> otherConcurrentAttempts;
 
-	public long getDuration() {
-		return duration;
-	}
+    @JsonCreator
+    // blocked is Nullable since Jackson will assign null if the field is absent while parsing
+    public SubtaskExecutionAttemptDetailsInfo(
+            @JsonProperty(FIELD_NAME_SUBTASK_INDEX) int subtaskIndex,
+            @JsonProperty(FIELD_NAME_STATUS) ExecutionState status,
+            @JsonProperty(FIELD_NAME_ATTEMPT) int attempt,
+            @JsonProperty(FIELD_NAME_HOST) String host,
+            @JsonProperty(FIELD_NAME_START_TIME) long startTime,
+            @JsonProperty(FIELD_NAME_END_TIME) long endTime,
+            @JsonProperty(FIELD_NAME_DURATION) long duration,
+            @JsonProperty(FIELD_NAME_METRICS) IOMetricsInfo ioMetricsInfo,
+            @JsonProperty(FIELD_NAME_TASKMANAGER_ID) String taskmanagerId,
+            @JsonProperty(FIELD_NAME_STATUS_DURATION) Map<ExecutionState, Long> statusDuration,
+            @JsonProperty(FIELD_NAME_OTHER_CONCURRENT_ATTEMPTS) @Nullable
+                    List<SubtaskExecutionAttemptDetailsInfo> otherConcurrentAttempts) {
 
-	public IOMetricsInfo getIoMetricsInfo() {
-		return ioMetricsInfo;
-	}
+        this.subtaskIndex = subtaskIndex;
+        this.status = Preconditions.checkNotNull(status);
+        this.attempt = attempt;
+        this.host = Preconditions.checkNotNull(host);
+        this.startTime = startTime;
+        this.startTimeCompatible = startTime;
+        this.endTime = endTime;
+        this.duration = duration;
+        this.ioMetricsInfo = Preconditions.checkNotNull(ioMetricsInfo);
+        this.taskmanagerId = Preconditions.checkNotNull(taskmanagerId);
+        this.statusDuration = Preconditions.checkNotNull(statusDuration);
+        this.otherConcurrentAttempts = otherConcurrentAttempts;
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		}
-		if (o == null || getClass() != o.getClass()) {
-			return false;
-		}
+    public int getSubtaskIndex() {
+        return subtaskIndex;
+    }
 
-		SubtaskExecutionAttemptDetailsInfo that = (SubtaskExecutionAttemptDetailsInfo) o;
+    public ExecutionState getStatus() {
+        return status;
+    }
 
-		return subtaskIndex == that.subtaskIndex &&
-			status == that.status &&
-			attempt == that.attempt &&
-			Objects.equals(host, that.host) &&
-			startTime == that.startTime &&
-			endTime == that.endTime &&
-			duration == that.duration &&
-			Objects.equals(ioMetricsInfo, that.ioMetricsInfo);
-	}
+    public int getAttempt() {
+        return attempt;
+    }
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(subtaskIndex, status, attempt, host, startTime, endTime, duration, ioMetricsInfo);
-	}
+    public String getHost() {
+        return host;
+    }
 
-	public static SubtaskExecutionAttemptDetailsInfo create(AccessExecution execution, MutableIOMetrics ioMetrics) {
-		final ExecutionState status = execution.getState();
-		final long now = System.currentTimeMillis();
+    public long getStartTime() {
+        return startTime;
+    }
 
-		final TaskManagerLocation location = execution.getAssignedResourceLocation();
-		final String locationString = location == null ? "(unassigned)" : location.getHostname();
+    public long getStartTimeCompatible() {
+        return startTimeCompatible;
+    }
 
-		long startTime = execution.getStateTimestamp(ExecutionState.DEPLOYING);
-		if (startTime == 0) {
-			startTime = -1;
-		}
-		final long endTime = status.isTerminal() ? execution.getStateTimestamp(status) : -1;
-		final long duration = startTime > 0 ? ((endTime > 0 ? endTime : now) - startTime) : -1;
+    public long getEndTime() {
+        return endTime;
+    }
 
-		final IOMetricsInfo ioMetricsInfo = new IOMetricsInfo(
-			ioMetrics.getNumBytesInLocal() + ioMetrics.getNumBytesInRemote(),
-			ioMetrics.isNumBytesInLocalComplete() && ioMetrics.isNumBytesInRemoteComplete(),
-			ioMetrics.getNumBytesOut(),
-			ioMetrics.isNumBytesOutComplete(),
-			ioMetrics.getNumRecordsIn(),
-			ioMetrics.isNumRecordsInComplete(),
-			ioMetrics.getNumRecordsOut(),
-			ioMetrics.isNumRecordsOutComplete());
+    public long getDuration() {
+        return duration;
+    }
 
-		return new SubtaskExecutionAttemptDetailsInfo(
-			execution.getParallelSubtaskIndex(),
-			status,
-			execution.getAttemptNumber(),
-			locationString,
-			startTime,
-			endTime,
-			duration,
-			ioMetricsInfo
-		);
-	}
+    public Map<ExecutionState, Long> getStatusDuration() {
+        return statusDuration;
+    }
+
+    public long getStatusDuration(ExecutionState state) {
+        return statusDuration.get(state);
+    }
+
+    public IOMetricsInfo getIoMetricsInfo() {
+        return ioMetricsInfo;
+    }
+
+    public String getTaskmanagerId() {
+        return taskmanagerId;
+    }
+
+    public List<SubtaskExecutionAttemptDetailsInfo> getOtherConcurrentAttempts() {
+        return otherConcurrentAttempts == null ? new ArrayList<>() : otherConcurrentAttempts;
+    }
+
+    public static SubtaskExecutionAttemptDetailsInfo create(
+            AccessExecution execution,
+            @Nullable MetricFetcher metricFetcher,
+            JobID jobID,
+            JobVertexID jobVertexID,
+            @Nullable List<SubtaskExecutionAttemptDetailsInfo> otherConcurrentAttempts) {
+        final ExecutionState status = execution.getState();
+        final long now = System.currentTimeMillis();
+
+        final TaskManagerLocation location = execution.getAssignedResourceLocation();
+        final String locationString = location == null ? "(unassigned)" : location.getHostname();
+        String taskmanagerId =
+                location == null ? "(unassigned)" : location.getResourceID().toString();
+
+        long startTime = execution.getStateTimestamp(ExecutionState.DEPLOYING);
+        if (startTime == 0) {
+            startTime = -1;
+        }
+        final long endTime = status.isTerminal() ? execution.getStateTimestamp(status) : -1;
+        final long duration = startTime > 0 ? ((endTime > 0 ? endTime : now) - startTime) : -1;
+
+        final MutableIOMetrics ioMetrics = new MutableIOMetrics();
+        ioMetrics.addIOMetrics(execution, metricFetcher, jobID.toString(), jobVertexID.toString());
+
+        final IOMetricsInfo ioMetricsInfo =
+                new IOMetricsInfo(
+                        ioMetrics.getNumBytesIn(),
+                        ioMetrics.isNumBytesInComplete(),
+                        ioMetrics.getNumBytesOut(),
+                        ioMetrics.isNumBytesOutComplete(),
+                        ioMetrics.getNumRecordsIn(),
+                        ioMetrics.isNumRecordsInComplete(),
+                        ioMetrics.getNumRecordsOut(),
+                        ioMetrics.isNumRecordsOutComplete(),
+                        ioMetrics.getAccumulateBackPressuredTime(),
+                        ioMetrics.getAccumulateIdleTime(),
+                        ioMetrics.getAccumulateBusyTime());
+
+        return new SubtaskExecutionAttemptDetailsInfo(
+                execution.getParallelSubtaskIndex(),
+                status,
+                execution.getAttemptNumber(),
+                locationString,
+                startTime,
+                endTime,
+                duration,
+                ioMetricsInfo,
+                taskmanagerId,
+                getExecutionStateDuration(execution),
+                otherConcurrentAttempts);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        SubtaskExecutionAttemptDetailsInfo that = (SubtaskExecutionAttemptDetailsInfo) o;
+
+        return subtaskIndex == that.subtaskIndex
+                && status == that.status
+                && attempt == that.attempt
+                && Objects.equals(host, that.host)
+                && startTime == that.startTime
+                && startTimeCompatible == that.startTimeCompatible
+                && endTime == that.endTime
+                && duration == that.duration
+                && Objects.equals(ioMetricsInfo, that.ioMetricsInfo)
+                && Objects.equals(taskmanagerId, that.taskmanagerId)
+                && Objects.equals(statusDuration, that.statusDuration)
+                && Objects.equals(otherConcurrentAttempts, that.otherConcurrentAttempts);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                subtaskIndex,
+                status,
+                attempt,
+                host,
+                startTime,
+                startTimeCompatible,
+                endTime,
+                duration,
+                ioMetricsInfo,
+                taskmanagerId,
+                statusDuration,
+                otherConcurrentAttempts);
+    }
 }

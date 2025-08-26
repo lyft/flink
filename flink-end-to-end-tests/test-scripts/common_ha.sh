@@ -18,13 +18,14 @@
 # limitations under the License.
 ################################################################################
 
+source "${END_TO_END_DIR}"/test-scripts/common.sh
+
 # flag indicating if we have already cleared up things after a test
 CLEARED=0
 
-JM_WATCHDOG_PID=0
-TM_WATCHDOG_PID=0
-
-function stop_cluster_and_watchdog() {
+function stop_watchdogs() {
+    JM_WATCHDOG_PID=`cat $TEST_DATA_DIR/jm_watchdog.pid`
+    TM_WATCHDOG_PID=`cat $TEST_DATA_DIR/tm_watchdog.pid`
     if [ ${CLEARED} -eq 0 ]; then
 
         if ! [ ${JM_WATCHDOG_PID} -eq 0 ]; then
@@ -43,27 +44,35 @@ function stop_cluster_and_watchdog() {
     fi
 }
 
+function verify_num_occurences_in_logs() {
+    local log_pattern="$1"
+    local text="$2"
+    local expected_no="$3"
+
+    local actual_no=$(grep -r --include "*${log_pattern}*.log*" -e "${text}" "$FLINK_LOG_DIR/" | cut -d ":" -f 1 | sed "s/\.[0-9]\{1,\}$//g" | uniq | wc -l)
+    [[ "${expected_no}" -eq "${actual_no}" ]]
+}
+
 function verify_logs() {
-    local OUTPUT=$FLINK_DIR/log/*.out
     local JM_FAILURES=$1
     local EXIT_CODE=0
     local VERIFY_CHECKPOINTS=$2
 
     # verify that we have no alerts
-    if ! [ `cat ${OUTPUT} | wc -l` -eq 0 ]; then
+    if ! check_logs_for_non_empty_out_files; then
         echo "FAILURE: Alerts found at the general purpose job."
         EXIT_CODE=1
     fi
 
     # checks that all apart from the first JM recover the failed jobgraph.
-    if ! [ `grep -r --include '*standalonesession*.log' 'Recovered SubmittedJobGraph' "${FLINK_DIR}/log/" | cut -d ":" -f 1 | uniq | wc -l` -eq ${JM_FAILURES} ]; then
+    if ! verify_num_occurences_in_logs 'standalonesession' 'Recovered JobGraph' ${JM_FAILURES}; then
         echo "FAILURE: A JM did not take over."
         EXIT_CODE=1
     fi
 
     if [ "$VERIFY_CHECKPOINTS" = true ]; then
     # search the logs for JMs that log completed checkpoints
-        if ! [ `grep -r --include '*standalonesession*.log' 'Completed checkpoint' "${FLINK_DIR}/log/" | cut -d ":" -f 1 | uniq | wc -l` -eq $((JM_FAILURES + 1)) ]; then
+        if ! verify_num_occurences_in_logs 'standalonesession' 'Completed checkpoint' $((JM_FAILURES + 1)); then
             echo "FAILURE: A JM did not execute the job."
             EXIT_CODE=1
         fi
@@ -77,31 +86,57 @@ function verify_logs() {
 
 function jm_watchdog() {
     local EXPECTED_JMS=$1
-    local IP_PORT=$2
+    local PROCESS_NAME=$2
 
     while true; do
-        local RUNNING_JMS=`jps | grep 'StandaloneSessionClusterEntrypoint' | wc -l`;
+        local RUNNING_JMS=`jps | grep "${PROCESS_NAME}" | wc -l`;
         local MISSING_JMS=$((EXPECTED_JMS-RUNNING_JMS))
         for (( c=0; c<MISSING_JMS; c++ )); do
-            "$FLINK_DIR"/bin/jobmanager.sh start "localhost" ${IP_PORT}
+            ${@:3}
         done
         sleep 1;
     done
 }
 
+function start_jm_cmd {
+    local IP_PORT=$1
+    "$FLINK_DIR/bin/jobmanager.sh" "start" "localhost" "${IP_PORT}"
+}
+
+#######################################
+# Start watchdog for JM process
+
+# Arguments:
+#   $1: expected number of jms to run
+#   $2: process name to monitor
+#   $3: command to start new jm
+#######################################
 function start_ha_jm_watchdog() {
-    jm_watchdog $1 $2 &
+    jm_watchdog $1 $2 ${@:3} &
     JM_WATCHDOG_PID=$!
+    echo $JM_WATCHDOG_PID > $TEST_DATA_DIR/jm_watchdog.pid
     echo "Running JM watchdog @ ${JM_WATCHDOG_PID}"
 }
 
-function kill_jm {
-    local JM_PIDS=`jps | grep 'StandaloneSessionClusterEntrypoint' | cut -d " " -f 1`
+function kill_single {
+    local JM_PIDS=`jps | grep "$1" | cut -d " " -f 1`
     local JM_PIDS=(${JM_PIDS[@]})
     local PID=${JM_PIDS[0]}
     kill -9 ${PID}
 
     echo "Killed JM @ ${PID}"
+}
+
+function start_expected_num_tms() {
+  local EXPECTED_TMS=$1
+
+  local RUNNING_TMS=`jps | grep 'TaskManager' | wc -l`
+
+  while [ "${RUNNING_TMS}" -lt "${EXPECTED_TMS}" ]; do
+      echo "Starting new TM."
+      "$FLINK_DIR"/bin/taskmanager.sh start > /dev/null
+      RUNNING_TMS=$((RUNNING_TMS + 1))
+  done
 }
 
 # ha prefix to differentiate from the one in common.sh
@@ -114,30 +149,29 @@ function ha_tm_watchdog() {
 
     while true; do
 
+        start_expected_num_tms $EXPECTED_TMS
+
         # check how many successful checkpoints we have
         # and kill a TM only if the previous one already had some
 
         local CHECKPOINTS=`curl -s "http://localhost:8081/jobs/${JOB_ID}/checkpoints" | cut -d ":" -f 6 | sed 's/,.*//'`
 
-        if [[ ${CHECKPOINTS} =~ '^[0-9]+$' ]] || [[ ${CHECKPOINTS} == "" ]]; then
+        if [[ ${CHECKPOINTS} == "" ]]; then
+
+            # leader election indicates a loss of JM which starts the chk counter from 0
+            SUCCESSFUL_CHCKP=0
 
             # this may be the case during leader election.
             # in this case we retry later with a smaller interval
             sleep 5; continue
 
-        elif [ "${CHECKPOINTS}" -ne "${SUCCESSFUL_CHCKP}" ]; then
+        elif [[ ${CHECKPOINTS} =~ ^[0-9]+$ ]] && [ "${CHECKPOINTS}" -gt "0" ] && [ "${CHECKPOINTS}" -ne "${SUCCESSFUL_CHCKP}" ]; then
+            # wait for at least one successful checkpoint before killing a TM
 
             # we are not only searching for > because when the JM goes down,
             # the job starts with reporting 0 successful checkpoints
 
-            local RUNNING_TMS=`jps | grep 'TaskManager' | wc -l`
             local TM_PIDS=`jps | grep 'TaskManager' | cut -d " " -f 1`
-
-            local MISSING_TMS=$((EXPECTED_TMS-RUNNING_TMS))
-            if [ ${MISSING_TMS} -eq 0 ]; then
-                # start a new TM only if we have exactly the expected number
-                "$FLINK_DIR"/bin/taskmanager.sh start > /dev/null
-            fi
 
             # kill an existing one
             local TM_PIDS=(${TM_PIDS[@]})
@@ -147,6 +181,8 @@ function ha_tm_watchdog() {
             echo "Killed TM @ ${PID}"
 
             SUCCESSFUL_CHCKP=${CHECKPOINTS}
+
+            start_expected_num_tms $EXPECTED_TMS
         fi
 
         sleep 11;
@@ -156,6 +192,7 @@ function ha_tm_watchdog() {
 function start_ha_tm_watchdog() {
     ha_tm_watchdog $1 $2 &
     TM_WATCHDOG_PID=$!
+    echo $TM_WATCHDOG_PID > $TEST_DATA_DIR/tm_watchdog.pid
     echo "Running TM watchdog @ ${TM_WATCHDOG_PID}"
 }
 

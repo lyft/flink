@@ -18,108 +18,133 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.Meter;
+import org.apache.flink.runtime.io.network.metrics.ResultPartitionBytesCounter;
+import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+
+import javax.annotation.Nullable;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-/**
- * An instance of this class represents a snapshot of the io-related metrics of a single task.
- */
+import static org.apache.flink.util.Preconditions.checkNotNull;
+
+/** An instance of this class represents a snapshot of the io-related metrics of a single task. */
 public class IOMetrics implements Serializable {
 
-	private static final long serialVersionUID = -7208093607556457183L;
+    private static final long serialVersionUID = -7208093607556457183L;
 
-	protected long numRecordsIn;
-	protected long numRecordsOut;
+    protected long numRecordsIn;
+    protected long numRecordsOut;
 
-	protected double numRecordsInPerSecond;
-	protected double numRecordsOutPerSecond;
+    protected long numBytesIn;
+    protected long numBytesOut;
 
-	protected long numBytesInLocal;
-	protected long numBytesInRemote;
-	protected long numBytesOut;
+    protected long accumulateBackPressuredTime;
+    protected double accumulateBusyTime;
+    protected long accumulateIdleTime;
 
-	protected double numBytesInLocalPerSecond;
-	protected double numBytesInRemotePerSecond;
-	protected double numBytesOutPerSecond;
+    @Nullable
+    protected Map<IntermediateResultPartitionID, ResultPartitionBytes> resultPartitionBytes;
 
-	public IOMetrics(Meter recordsIn, Meter recordsOut, Meter bytesLocalIn, Meter bytesRemoteIn, Meter bytesOut) {
-		this.numRecordsIn = recordsIn.getCount();
-		this.numRecordsInPerSecond = recordsIn.getRate();
-		this.numRecordsOut = recordsOut.getCount();
-		this.numRecordsOutPerSecond = recordsOut.getRate();
-		this.numBytesInLocal = bytesLocalIn.getCount();
-		this.numBytesInLocalPerSecond = bytesLocalIn.getRate();
-		this.numBytesInRemote = bytesRemoteIn.getCount();
-		this.numBytesInRemotePerSecond = bytesRemoteIn.getRate();
-		this.numBytesOut = bytesOut.getCount();
-		this.numBytesOutPerSecond = bytesOut.getRate();
-	}
+    public IOMetrics(
+            Meter recordsIn,
+            Meter recordsOut,
+            Meter bytesIn,
+            Meter bytesOut,
+            Gauge<Long> accumulatedBackPressuredTime,
+            Gauge<Long> accumulatedIdleTime,
+            Gauge<Double> accumulatedBusyTime,
+            Map<IntermediateResultPartitionID, ResultPartitionBytesCounter>
+                    resultPartitionBytesCounters) {
+        this.numRecordsIn = recordsIn.getCount();
+        this.numRecordsOut = recordsOut.getCount();
+        this.numBytesIn = bytesIn.getCount();
+        this.numBytesOut = bytesOut.getCount();
+        this.accumulateBackPressuredTime = accumulatedBackPressuredTime.getValue();
+        this.accumulateBusyTime = accumulatedBusyTime.getValue();
+        this.accumulateIdleTime = accumulatedIdleTime.getValue();
+        this.resultPartitionBytes =
+                resultPartitionBytesCounters.entrySet().stream()
+                        .collect(
+                                Collectors.toMap(
+                                        Map.Entry::getKey,
+                                        entry -> entry.getValue().createSnapshot()));
+    }
 
-	public IOMetrics(
-			long numBytesInLocal,
-			long numBytesInRemote,
-			long numBytesOut,
-			long numRecordsIn,
-			long numRecordsOut,
-			double numBytesInLocalPerSecond,
-			double numBytesInRemotePerSecond,
-			double numBytesOutPerSecond,
-			double numRecordsInPerSecond,
-			double numRecordsOutPerSecond) {
-		this.numBytesInLocal = numBytesInLocal;
-		this.numBytesInRemote = numBytesInRemote;
-		this.numBytesOut = numBytesOut;
-		this.numRecordsIn = numRecordsIn;
-		this.numRecordsOut = numRecordsOut;
-		this.numBytesInLocalPerSecond = numBytesInLocalPerSecond;
-		this.numBytesInRemotePerSecond = numBytesInRemotePerSecond;
-		this.numBytesOutPerSecond = numBytesOutPerSecond;
-		this.numRecordsInPerSecond = numRecordsInPerSecond;
-		this.numRecordsOutPerSecond = numRecordsOutPerSecond;
-	}
+    public IOMetrics(
+            long numBytesIn,
+            long numBytesOut,
+            long numRecordsIn,
+            long numRecordsOut,
+            long accumulateIdleTime,
+            double accumulateBusyTime,
+            long accumulateBackPressuredTime) {
+        this(
+                numBytesIn,
+                numBytesOut,
+                numRecordsIn,
+                numRecordsOut,
+                accumulateIdleTime,
+                accumulateBusyTime,
+                accumulateBackPressuredTime,
+                null);
+    }
 
-	public long getNumRecordsIn() {
-		return numRecordsIn;
-	}
+    @VisibleForTesting
+    public IOMetrics(
+            long numBytesIn,
+            long numBytesOut,
+            long numRecordsIn,
+            long numRecordsOut,
+            long accumulateIdleTime,
+            double accumulateBusyTime,
+            long accumulateBackPressuredTime,
+            @Nullable
+                    Map<IntermediateResultPartitionID, ResultPartitionBytes> resultPartitionBytes) {
+        this.numBytesIn = numBytesIn;
+        this.numBytesOut = numBytesOut;
+        this.numRecordsIn = numRecordsIn;
+        this.numRecordsOut = numRecordsOut;
+        this.accumulateIdleTime = accumulateIdleTime;
+        this.accumulateBusyTime = accumulateBusyTime;
+        this.accumulateBackPressuredTime = accumulateBackPressuredTime;
+        this.resultPartitionBytes = resultPartitionBytes;
+    }
 
-	public long getNumRecordsOut() {
-		return numRecordsOut;
-	}
+    public long getNumRecordsIn() {
+        return numRecordsIn;
+    }
 
-	public long getNumBytesInLocal() {
-		return numBytesInLocal;
-	}
+    public long getNumRecordsOut() {
+        return numRecordsOut;
+    }
 
-	public long getNumBytesInRemote() {
-		return numBytesInRemote;
-	}
+    public long getNumBytesIn() {
+        return numBytesIn;
+    }
 
-	public long getNumBytesInTotal() {
-		return numBytesInLocal + numBytesInRemote;
-	}
+    public long getNumBytesOut() {
+        return numBytesOut;
+    }
 
-	public long getNumBytesOut() {
-		return numBytesOut;
-	}
+    public double getAccumulateBusyTime() {
+        return accumulateBusyTime;
+    }
 
-	public double getNumRecordsInPerSecond() {
-		return numRecordsInPerSecond;
-	}
+    public long getAccumulateBackPressuredTime() {
+        return accumulateBackPressuredTime;
+    }
 
-	public double getNumRecordsOutPerSecond() {
-		return numRecordsOutPerSecond;
-	}
+    public long getAccumulateIdleTime() {
+        return accumulateIdleTime;
+    }
 
-	public double getNumBytesInLocalPerSecond() {
-		return numBytesInLocalPerSecond;
-	}
-
-	public double getNumBytesInRemotePerSecond() {
-		return numBytesInRemotePerSecond;
-	}
-
-	public double getNumBytesOutPerSecond() {
-		return numBytesOutPerSecond;
-	}
+    public Map<IntermediateResultPartitionID, ResultPartitionBytes> getResultPartitionBytes() {
+        return Collections.unmodifiableMap(checkNotNull(resultPartitionBytes));
+    }
 }

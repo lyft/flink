@@ -40,408 +40,313 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Utility methods for serialization of {@link TypeSerializer} and {@link TypeSerializerConfigSnapshot}.
+ * Utility methods for serialization of {@link TypeSerializer}.
+ *
+ * @deprecated This utility class was used to write serializers into checkpoints. Starting from
+ *     Flink 1.6.x, this should no longer happen, and therefore this class is deprecated. It remains
+ *     here for backwards compatibility paths.
  */
 @Internal
+@Deprecated
 public class TypeSerializerSerializationUtil {
 
-	private static final Logger LOG = LoggerFactory.getLogger(TypeSerializerSerializationUtil.class);
+    private static final Logger LOG =
+            LoggerFactory.getLogger(TypeSerializerSerializationUtil.class);
 
-	/**
-	 * Writes a {@link TypeSerializer} to the provided data output view.
-	 *
-	 * <p>It is written with a format that can be later read again using
-	 * {@link #tryReadSerializer(DataInputView, ClassLoader, boolean)}.
-	 *
-	 * @param out the data output view.
-	 * @param serializer the serializer to write.
-	 *
-	 * @param <T> Data type of the serializer.
-	 *
-	 * @throws IOException
-	 */
-	public static <T> void writeSerializer(DataOutputView out, TypeSerializer<T> serializer) throws IOException {
-		new TypeSerializerSerializationUtil.TypeSerializerSerializationProxy<>(serializer).write(out);
-	}
+    /**
+     * Writes a {@link TypeSerializer} to the provided data output view.
+     *
+     * <p>It is written with a format that can be later read again using {@link
+     * #tryReadSerializer(DataInputView, ClassLoader, boolean)}.
+     *
+     * @param out the data output view.
+     * @param serializer the serializer to write.
+     * @param <T> Data type of the serializer.
+     * @throws IOException
+     */
+    public static <T> void writeSerializer(DataOutputView out, TypeSerializer<T> serializer)
+            throws IOException {
+        new TypeSerializerSerializationUtil.TypeSerializerSerializationProxy<>(serializer)
+                .write(out);
+    }
 
-	/**
-	 * Reads from a data input view a {@link TypeSerializer} that was previously
-	 * written using {@link #writeSerializer(DataOutputView, TypeSerializer)}.
-	 *
-	 * <p>If deserialization fails for any reason (corrupted serializer bytes, serializer class
-	 * no longer in classpath, serializer class no longer valid, etc.), an {@link IOException} is thrown.
-	 *
-	 * @param in the data input view.
-	 * @param userCodeClassLoader the user code class loader to use.
-	 *
-	 * @param <T> Data type of the serializer.
-	 *
-	 * @return the deserialized serializer.
-	 */
-	public static <T> TypeSerializer<T> tryReadSerializer(DataInputView in, ClassLoader userCodeClassLoader) throws IOException {
-		return tryReadSerializer(in, userCodeClassLoader, false);
-	}
+    /**
+     * Reads from a data input view a {@link TypeSerializer} that was previously written using
+     * {@link #writeSerializer(DataOutputView, TypeSerializer)}.
+     *
+     * <p>If deserialization fails for any reason (corrupted serializer bytes, serializer class no
+     * longer in classpath, serializer class no longer valid, etc.), an {@link IOException} is
+     * thrown.
+     *
+     * @param in the data input view.
+     * @param userCodeClassLoader the user code class loader to use.
+     * @param <T> Data type of the serializer.
+     * @return the deserialized serializer.
+     */
+    public static <T> TypeSerializer<T> tryReadSerializer(
+            DataInputView in, ClassLoader userCodeClassLoader) throws IOException {
+        return tryReadSerializer(in, userCodeClassLoader, false);
+    }
 
-	/**
-	 * Reads from a data input view a {@link TypeSerializer} that was previously
-	 * written using {@link #writeSerializer(DataOutputView, TypeSerializer)}.
-	 *
-	 * <p>If deserialization fails due to any exception, users can opt to use a dummy
-	 * {@link UnloadableDummyTypeSerializer} to hold the serializer bytes, otherwise an {@link IOException} is thrown.
-	 *
-	 * @param in the data input view.
-	 * @param userCodeClassLoader the user code class loader to use.
-	 * @param useDummyPlaceholder whether or not to use a dummy {@link UnloadableDummyTypeSerializer} to hold the
-	 *                            serializer bytes in the case of a {@link ClassNotFoundException} or
-	 *                            {@link InvalidClassException}.
-	 *
-	 * @param <T> Data type of the serializer.
-	 *
-	 * @return the deserialized serializer.
-	 */
-	public static <T> TypeSerializer<T> tryReadSerializer(
-			DataInputView in,
-			ClassLoader userCodeClassLoader,
-			boolean useDummyPlaceholder) throws IOException {
+    /**
+     * Reads from a data input view a {@link TypeSerializer} that was previously written using
+     * {@link #writeSerializer(DataOutputView, TypeSerializer)}.
+     *
+     * <p>If deserialization fails due to any exception, users can opt to use a dummy {@link
+     * UnloadableDummyTypeSerializer} to hold the serializer bytes, otherwise an {@link IOException}
+     * is thrown.
+     *
+     * @param in the data input view.
+     * @param userCodeClassLoader the user code class loader to use.
+     * @param useDummyPlaceholder whether or not to use a dummy {@link
+     *     UnloadableDummyTypeSerializer} to hold the serializer bytes in the case of a {@link
+     *     ClassNotFoundException} or {@link InvalidClassException}.
+     * @param <T> Data type of the serializer.
+     * @return the deserialized serializer.
+     */
+    public static <T> TypeSerializer<T> tryReadSerializer(
+            DataInputView in, ClassLoader userCodeClassLoader, boolean useDummyPlaceholder)
+            throws IOException {
 
-		final TypeSerializerSerializationUtil.TypeSerializerSerializationProxy<T> proxy =
-			new TypeSerializerSerializationUtil.TypeSerializerSerializationProxy<>(userCodeClassLoader);
+        final TypeSerializerSerializationUtil.TypeSerializerSerializationProxy<T> proxy =
+                new TypeSerializerSerializationUtil.TypeSerializerSerializationProxy<>(
+                        userCodeClassLoader);
 
-		try {
-			proxy.read(in);
-			return proxy.getTypeSerializer();
-		} catch (UnloadableTypeSerializerException e) {
-			if (useDummyPlaceholder) {
-				LOG.warn("Could not read a requested serializer. Replaced with a UnloadableDummyTypeSerializer.", e.getCause());
-				return new UnloadableDummyTypeSerializer<>(e.getSerializerBytes());
-			} else {
-				throw e;
-			}
-		}
-	}
+        try {
+            proxy.read(in);
+            return proxy.getTypeSerializer();
+        } catch (UnloadableTypeSerializerException e) {
+            if (useDummyPlaceholder) {
+                LOG.warn(
+                        "Could not read a requested serializer. Replaced with a UnloadableDummyTypeSerializer.",
+                        e.getCause());
+                return new UnloadableDummyTypeSerializer<>(e.getSerializerBytes(), e.getCause());
+            } else {
+                throw e;
+            }
+        }
+    }
 
-	/**
-	 * Write a list of serializers and their corresponding config snapshots to the provided
-	 * data output view. This method writes in a fault tolerant way, so that when read again
-	 * using {@link #readSerializersAndConfigsWithResilience(DataInputView, ClassLoader)}, if
-	 * deserialization of the serializer fails, its configuration snapshot will remain intact.
-	 *
-	 * <p>Specifically, all written serializers and their config snapshots are indexed by their
-	 * offset positions within the serialized bytes. The serialization format is as follows:
-	 * <ul>
-	 *     <li>1. number of serializer and configuration snapshot pairs.</li>
-	 *     <li>2. offsets of each serializer and configuration snapshot, in order.</li>
-	 *     <li>3. total number of bytes for the serialized serializers and the config snapshots.</li>
-	 *     <li>4. serialized serializers and the config snapshots.</li>
-	 * </ul>
-	 *
-	 * @param out the data output view.
-	 * @param serializersAndConfigs serializer and configuration snapshot pairs
-	 *
-	 * @throws IOException
-	 */
-	public static void writeSerializersAndConfigsWithResilience(
-			DataOutputView out,
-			List<Tuple2<TypeSerializer<?>, TypeSerializerConfigSnapshot>> serializersAndConfigs) throws IOException {
+    /**
+     * Write a list of serializers and their corresponding config snapshots to the provided data
+     * output view. This method writes in a fault tolerant way, so that when read again using {@link
+     * #readSerializersAndConfigsWithResilience(DataInputView, ClassLoader)}, if deserialization of
+     * the serializer fails, its configuration snapshot will remain intact.
+     *
+     * <p>Specifically, all written serializers and their config snapshots are indexed by their
+     * offset positions within the serialized bytes. The serialization format is as follows:
+     *
+     * <ul>
+     *   <li>1. number of serializer and configuration snapshot pairs.
+     *   <li>2. offsets of each serializer and configuration snapshot, in order.
+     *   <li>3. total number of bytes for the serialized serializers and the config snapshots.
+     *   <li>4. serialized serializers and the config snapshots.
+     * </ul>
+     *
+     * @param out the data output view.
+     * @param serializersAndConfigs serializer and configuration snapshot pairs
+     * @throws IOException
+     */
+    public static void writeSerializersAndConfigsWithResilience(
+            DataOutputView out,
+            List<Tuple2<TypeSerializer<?>, TypeSerializerSnapshot<?>>> serializersAndConfigs)
+            throws IOException {
 
-		try (
-			ByteArrayOutputStreamWithPos bufferWithPos = new ByteArrayOutputStreamWithPos();
-			DataOutputViewStreamWrapper bufferWrapper = new DataOutputViewStreamWrapper(bufferWithPos)) {
+        try (ByteArrayOutputStreamWithPos bufferWithPos = new ByteArrayOutputStreamWithPos();
+                DataOutputViewStreamWrapper bufferWrapper =
+                        new DataOutputViewStreamWrapper(bufferWithPos)) {
 
-			out.writeInt(serializersAndConfigs.size());
-			for (Tuple2<TypeSerializer<?>, TypeSerializerConfigSnapshot> serAndConfSnapshot : serializersAndConfigs) {
-				out.writeInt(bufferWithPos.getPosition());
-				writeSerializer(bufferWrapper, serAndConfSnapshot.f0);
+            out.writeInt(serializersAndConfigs.size());
+            for (Tuple2<TypeSerializer<?>, TypeSerializerSnapshot<?>> serAndConfSnapshot :
+                    serializersAndConfigs) {
+                out.writeInt(bufferWithPos.getPosition());
+                writeSerializer(bufferWrapper, serAndConfSnapshot.f0);
 
-				out.writeInt(bufferWithPos.getPosition());
-				writeSerializerConfigSnapshot(bufferWrapper, serAndConfSnapshot.f1);
-			}
+                out.writeInt(bufferWithPos.getPosition());
+                TypeSerializerSnapshotSerializationUtil.writeSerializerSnapshot(
+                        bufferWrapper,
+                        (TypeSerializerSnapshot) serAndConfSnapshot.f1,
+                        serAndConfSnapshot.f0);
+            }
 
-			out.writeInt(bufferWithPos.getPosition());
-			out.write(bufferWithPos.getBuf(), 0, bufferWithPos.getPosition());
-		}
-	}
+            out.writeInt(bufferWithPos.getPosition());
+            out.write(bufferWithPos.getBuf(), 0, bufferWithPos.getPosition());
+        }
+    }
 
-	/**
-	 * Reads from a data input view a list of serializers and their corresponding config snapshots
-	 * written using {@link #writeSerializersAndConfigsWithResilience(DataOutputView, List)}.
-	 *
-	 * <p>If deserialization for serializers fails due to any exception, users can opt to use a dummy
-	 * {@link UnloadableDummyTypeSerializer} to hold the serializer bytes
-	 *
-	 * @param in the data input view.
-	 * @param userCodeClassLoader the user code class loader to use.
-	 *
-	 * @return the deserialized serializer and config snapshot pairs.
-	 *
-	 * @throws IOException
-	 */
-	public static List<Tuple2<TypeSerializer<?>, TypeSerializerConfigSnapshot>> readSerializersAndConfigsWithResilience(
-			DataInputView in,
-			ClassLoader userCodeClassLoader) throws IOException {
+    /**
+     * Reads from a data input view a list of serializers and their corresponding config snapshots
+     * written using {@link #writeSerializersAndConfigsWithResilience(DataOutputView, List)}.
+     *
+     * <p>If deserialization for serializers fails due to any exception, users can opt to use a
+     * dummy {@link UnloadableDummyTypeSerializer} to hold the serializer bytes
+     *
+     * @param in the data input view.
+     * @param userCodeClassLoader the user code class loader to use.
+     * @return the deserialized serializer and config snapshot pairs.
+     * @throws IOException
+     */
+    public static List<Tuple2<TypeSerializer<?>, TypeSerializerSnapshot<?>>>
+            readSerializersAndConfigsWithResilience(
+                    DataInputView in, ClassLoader userCodeClassLoader) throws IOException {
 
-		int numSerializersAndConfigSnapshots = in.readInt();
+        int numSerializersAndConfigSnapshots = in.readInt();
 
-		int[] offsets = new int[numSerializersAndConfigSnapshots * 2];
+        int[] offsets = new int[numSerializersAndConfigSnapshots * 2];
 
-		for (int i = 0; i < numSerializersAndConfigSnapshots; i++) {
-			offsets[i * 2] = in.readInt();
-			offsets[i * 2 + 1] = in.readInt();
-		}
+        for (int i = 0; i < numSerializersAndConfigSnapshots; i++) {
+            offsets[i * 2] = in.readInt();
+            offsets[i * 2 + 1] = in.readInt();
+        }
 
-		int totalBytes = in.readInt();
-		byte[] buffer = new byte[totalBytes];
-		in.readFully(buffer);
+        int totalBytes = in.readInt();
+        byte[] buffer = new byte[totalBytes];
+        in.readFully(buffer);
 
-		List<Tuple2<TypeSerializer<?>, TypeSerializerConfigSnapshot>> serializersAndConfigSnapshots =
-			new ArrayList<>(numSerializersAndConfigSnapshots);
+        List<Tuple2<TypeSerializer<?>, TypeSerializerSnapshot<?>>> serializersAndConfigSnapshots =
+                new ArrayList<>(numSerializersAndConfigSnapshots);
 
-		TypeSerializer<?> serializer;
-		TypeSerializerConfigSnapshot configSnapshot;
-		try (
-			ByteArrayInputStreamWithPos bufferWithPos = new ByteArrayInputStreamWithPos(buffer);
-			DataInputViewStreamWrapper bufferWrapper = new DataInputViewStreamWrapper(bufferWithPos)) {
+        TypeSerializer<?> serializer;
+        TypeSerializerSnapshot<?> configSnapshot;
+        try (ByteArrayInputStreamWithPos bufferWithPos = new ByteArrayInputStreamWithPos(buffer);
+                DataInputViewStreamWrapper bufferWrapper =
+                        new DataInputViewStreamWrapper(bufferWithPos)) {
 
-			for (int i = 0; i < numSerializersAndConfigSnapshots; i++) {
+            for (int i = 0; i < numSerializersAndConfigSnapshots; i++) {
 
-				bufferWithPos.setPosition(offsets[i * 2]);
-				serializer = tryReadSerializer(bufferWrapper, userCodeClassLoader, true);
+                bufferWithPos.setPosition(offsets[i * 2]);
+                serializer = tryReadSerializer(bufferWrapper, userCodeClassLoader, true);
 
-				bufferWithPos.setPosition(offsets[i * 2 + 1]);
-				configSnapshot = readSerializerConfigSnapshot(bufferWrapper, userCodeClassLoader);
+                bufferWithPos.setPosition(offsets[i * 2 + 1]);
 
-				serializersAndConfigSnapshots.add(
-					new Tuple2<TypeSerializer<?>, TypeSerializerConfigSnapshot>(serializer, configSnapshot));
-			}
-		}
+                configSnapshot =
+                        TypeSerializerSnapshotSerializationUtil.readSerializerSnapshot(
+                                bufferWrapper, userCodeClassLoader, serializer);
 
-		return serializersAndConfigSnapshots;
-	}
+                if (serializer instanceof LegacySerializerSnapshotTransformer) {
+                    configSnapshot = transformLegacySnapshot(serializer, configSnapshot);
+                }
 
-	/**
-	 * Writes a {@link TypeSerializerConfigSnapshot} to the provided data output view.
-	 *
-	 * <p>It is written with a format that can be later read again using
-	 * {@link #readSerializerConfigSnapshot(DataInputView, ClassLoader)}.
-	 *
-	 * @param out the data output view
-	 * @param serializerConfigSnapshot the serializer configuration snapshot to write
-	 *
-	 * @throws IOException
-	 */
-	public static void writeSerializerConfigSnapshot(
-			DataOutputView out,
-			TypeSerializerConfigSnapshot serializerConfigSnapshot) throws IOException {
+                serializersAndConfigSnapshots.add(new Tuple2<>(serializer, configSnapshot));
+            }
+        }
 
-		new TypeSerializerConfigSnapshotSerializationProxy(serializerConfigSnapshot).write(out);
-	}
+        return serializersAndConfigSnapshots;
+    }
 
-	/**
-	 * Reads from a data input view a {@link TypeSerializerConfigSnapshot} that was previously
-	 * written using {@link #writeSerializerConfigSnapshot(DataOutputView, TypeSerializerConfigSnapshot)}.
-	 *
-	 * @param in the data input view
-	 * @param userCodeClassLoader the user code class loader to use
-	 *
-	 * @return the read serializer configuration snapshot
-	 *
-	 * @throws IOException
-	 */
-	public static TypeSerializerConfigSnapshot readSerializerConfigSnapshot(
-			DataInputView in,
-			ClassLoader userCodeClassLoader) throws IOException {
+    @SuppressWarnings("unchecked")
+    private static <T, U> TypeSerializerSnapshot<T> transformLegacySnapshot(
+            TypeSerializer<T> serializer, TypeSerializerSnapshot<U> configSnapshot) {
 
-		final TypeSerializerConfigSnapshotSerializationProxy proxy = new TypeSerializerConfigSnapshotSerializationProxy(userCodeClassLoader);
-		proxy.read(in);
+        LegacySerializerSnapshotTransformer<T> transformation =
+                (LegacySerializerSnapshotTransformer<T>) serializer;
+        return transformation.transformLegacySerializerSnapshot(configSnapshot);
+    }
 
-		return proxy.getSerializerConfigSnapshot();
-	}
+    // -----------------------------------------------------------------------------------------------------
 
-	/**
-	 * Writes multiple {@link TypeSerializerConfigSnapshot}s to the provided data output view.
-	 *
-	 * <p>It is written with a format that can be later read again using
-	 * {@link #readSerializerConfigSnapshots(DataInputView, ClassLoader)}.
-	 *
-	 * @param out the data output view
-	 * @param serializerConfigSnapshots the serializer configuration snapshots to write
-	 *
-	 * @throws IOException
-	 */
-	public static void writeSerializerConfigSnapshots(
-			DataOutputView out,
-			TypeSerializerConfigSnapshot... serializerConfigSnapshots) throws IOException {
+    /** Utility serialization proxy for a {@link TypeSerializer}. */
+    public static final class TypeSerializerSerializationProxy<T>
+            extends VersionedIOReadableWritable {
 
-		out.writeInt(serializerConfigSnapshots.length);
+        private static final int VERSION = 1;
 
-		for (TypeSerializerConfigSnapshot snapshot : serializerConfigSnapshots) {
-			new TypeSerializerConfigSnapshotSerializationProxy(snapshot).write(out);
-		}
-	}
+        private ClassLoader userClassLoader;
+        private TypeSerializer<T> typeSerializer;
 
-	/**
-	 * Reads from a data input view multiple {@link TypeSerializerConfigSnapshot}s that was previously
-	 * written using {@link #writeSerializerConfigSnapshot(DataOutputView, TypeSerializerConfigSnapshot)}.
-	 *
-	 * @param in the data input view
-	 * @param userCodeClassLoader the user code class loader to use
-	 *
-	 * @return the read serializer configuration snapshots
-	 *
-	 * @throws IOException
-	 */
-	public static TypeSerializerConfigSnapshot[] readSerializerConfigSnapshots(
-			DataInputView in,
-			ClassLoader userCodeClassLoader) throws IOException {
+        public TypeSerializerSerializationProxy(ClassLoader userClassLoader) {
+            this.userClassLoader = userClassLoader;
+        }
 
-		int numFields = in.readInt();
-		final TypeSerializerConfigSnapshot[] serializerConfigSnapshots = new TypeSerializerConfigSnapshot[numFields];
+        public TypeSerializerSerializationProxy(TypeSerializer<T> typeSerializer) {
+            this.typeSerializer = Preconditions.checkNotNull(typeSerializer);
+        }
 
-		TypeSerializerConfigSnapshotSerializationProxy proxy;
-		for (int i = 0; i < numFields; i++) {
-			proxy = new TypeSerializerConfigSnapshotSerializationProxy(userCodeClassLoader);
-			proxy.read(in);
-			serializerConfigSnapshots[i] = proxy.getSerializerConfigSnapshot();
-		}
+        public TypeSerializer<T> getTypeSerializer() {
+            return typeSerializer;
+        }
 
-		return serializerConfigSnapshots;
-	}
+        @Override
+        public void write(DataOutputView out) throws IOException {
+            super.write(out);
 
-	// -----------------------------------------------------------------------------------------------------
+            if (typeSerializer instanceof UnloadableDummyTypeSerializer) {
+                UnloadableDummyTypeSerializer<T> dummyTypeSerializer =
+                        (UnloadableDummyTypeSerializer<T>) this.typeSerializer;
 
-	/**
-	 * Utility serialization proxy for a {@link TypeSerializer}.
-	 */
-	public static final class TypeSerializerSerializationProxy<T> extends VersionedIOReadableWritable {
+                byte[] serializerBytes = dummyTypeSerializer.getActualBytes();
+                out.write(serializerBytes.length);
+                out.write(serializerBytes);
+            } else {
+                // write in a way that allows the stream to recover from exceptions
+                try (ByteArrayOutputStreamWithPos streamWithPos =
+                        new ByteArrayOutputStreamWithPos()) {
+                    InstantiationUtil.serializeObject(streamWithPos, typeSerializer);
+                    out.writeInt(streamWithPos.getPosition());
+                    out.write(streamWithPos.getBuf(), 0, streamWithPos.getPosition());
+                }
+            }
+        }
 
-		private static final Logger LOG = LoggerFactory.getLogger(TypeSerializerSerializationProxy.class);
+        @SuppressWarnings("unchecked")
+        @Override
+        public void read(DataInputView in) throws IOException {
+            super.read(in);
 
-		private static final int VERSION = 1;
+            // read in a way that allows the stream to recover from exceptions
+            int serializerBytes = in.readInt();
+            byte[] buffer = new byte[serializerBytes];
+            in.readFully(buffer);
 
-		private ClassLoader userClassLoader;
-		private TypeSerializer<T> typeSerializer;
+            ClassLoader previousClassLoader = Thread.currentThread().getContextClassLoader();
+            try (InstantiationUtil.FailureTolerantObjectInputStream ois =
+                    new InstantiationUtil.FailureTolerantObjectInputStream(
+                            new ByteArrayInputStream(buffer), userClassLoader)) {
 
-		public TypeSerializerSerializationProxy(ClassLoader userClassLoader) {
-			this.userClassLoader = userClassLoader;
-		}
+                Thread.currentThread().setContextClassLoader(userClassLoader);
+                typeSerializer = (TypeSerializer<T>) ois.readObject();
+            } catch (Exception e) {
+                throw new UnloadableTypeSerializerException(e, buffer);
+            } finally {
+                Thread.currentThread().setContextClassLoader(previousClassLoader);
+            }
+        }
 
-		public TypeSerializerSerializationProxy(TypeSerializer<T> typeSerializer) {
-			this.typeSerializer = Preconditions.checkNotNull(typeSerializer);
-		}
+        @Override
+        public int getVersion() {
+            return VERSION;
+        }
+    }
 
-		public TypeSerializer<T> getTypeSerializer() {
-			return typeSerializer;
-		}
+    // ------------------------------------------------------------------------
+    //  utility exception
+    // ------------------------------------------------------------------------
 
-		@Override
-		public void write(DataOutputView out) throws IOException {
-			super.write(out);
+    /**
+     * An exception thrown to indicate that a serializer cannot be read. It wraps the cause of the
+     * read error, as well as the original bytes of the written serializer.
+     */
+    @Internal
+    private static class UnloadableTypeSerializerException extends IOException {
 
-			if (typeSerializer instanceof UnloadableDummyTypeSerializer) {
-				UnloadableDummyTypeSerializer<T> dummyTypeSerializer =
-					(UnloadableDummyTypeSerializer<T>) this.typeSerializer;
+        private static final long serialVersionUID = 1L;
 
-				byte[] serializerBytes = dummyTypeSerializer.getActualBytes();
-				out.write(serializerBytes.length);
-				out.write(serializerBytes);
-			} else {
-				// write in a way that allows the stream to recover from exceptions
-				try (ByteArrayOutputStreamWithPos streamWithPos = new ByteArrayOutputStreamWithPos()) {
-					InstantiationUtil.serializeObject(streamWithPos, typeSerializer);
-					out.writeInt(streamWithPos.getPosition());
-					out.write(streamWithPos.getBuf(), 0, streamWithPos.getPosition());
-				}
-			}
-		}
+        private final byte[] serializerBytes;
 
-		@SuppressWarnings("unchecked")
-		@Override
-		public void read(DataInputView in) throws IOException {
-			super.read(in);
+        /**
+         * Creates a new exception, with the cause of the read error and the original serializer
+         * bytes.
+         *
+         * @param cause the cause of the read error.
+         * @param serializerBytes the original serializer bytes.
+         */
+        public UnloadableTypeSerializerException(Exception cause, byte[] serializerBytes) {
+            super(cause);
+            this.serializerBytes = Preconditions.checkNotNull(serializerBytes);
+        }
 
-			// read in a way that allows the stream to recover from exceptions
-			int serializerBytes = in.readInt();
-			byte[] buffer = new byte[serializerBytes];
-			in.readFully(buffer);
-
-			ClassLoader previousClassLoader = Thread.currentThread().getContextClassLoader();
-			try (
-				InstantiationUtil.FailureTolerantObjectInputStream ois =
-					new InstantiationUtil.FailureTolerantObjectInputStream(new ByteArrayInputStream(buffer), userClassLoader)) {
-
-				Thread.currentThread().setContextClassLoader(userClassLoader);
-				typeSerializer = (TypeSerializer<T>) ois.readObject();
-			} catch (Exception e) {
-				throw new UnloadableTypeSerializerException(e, buffer);
-			} finally {
-				Thread.currentThread().setContextClassLoader(previousClassLoader);
-			}
-		}
-
-		@Override
-		public int getVersion() {
-			return VERSION;
-		}
-	}
-
-	/**
-	 * Utility serialization proxy for a {@link TypeSerializerConfigSnapshot}.
-	 */
-	static final class TypeSerializerConfigSnapshotSerializationProxy extends VersionedIOReadableWritable {
-
-		private static final int VERSION = 1;
-
-		private ClassLoader userCodeClassLoader;
-		private TypeSerializerConfigSnapshot serializerConfigSnapshot;
-
-		TypeSerializerConfigSnapshotSerializationProxy(ClassLoader userCodeClassLoader) {
-			this.userCodeClassLoader = Preconditions.checkNotNull(userCodeClassLoader);
-		}
-
-		TypeSerializerConfigSnapshotSerializationProxy(TypeSerializerConfigSnapshot serializerConfigSnapshot) {
-			this.serializerConfigSnapshot = serializerConfigSnapshot;
-		}
-
-		@Override
-		public void write(DataOutputView out) throws IOException {
-			super.write(out);
-
-			// config snapshot class, so that we can re-instantiate the
-			// correct type of config snapshot instance when deserializing
-			out.writeUTF(serializerConfigSnapshot.getClass().getName());
-
-			// the actual configuration parameters
-			serializerConfigSnapshot.write(out);
-		}
-
-		@SuppressWarnings("unchecked")
-		@Override
-		public void read(DataInputView in) throws IOException {
-			super.read(in);
-
-			String serializerConfigClassname = in.readUTF();
-			Class<? extends TypeSerializerConfigSnapshot> serializerConfigSnapshotClass;
-			try {
-				serializerConfigSnapshotClass = (Class<? extends TypeSerializerConfigSnapshot>)
-					Class.forName(serializerConfigClassname, true, userCodeClassLoader);
-			} catch (ClassNotFoundException e) {
-				throw new IOException(
-					"Could not find requested TypeSerializerConfigSnapshot class "
-						+ serializerConfigClassname +  " in classpath.", e);
-			}
-
-			serializerConfigSnapshot = InstantiationUtil.instantiate(serializerConfigSnapshotClass);
-			serializerConfigSnapshot.setUserCodeClassLoader(userCodeClassLoader);
-			serializerConfigSnapshot.read(in);
-		}
-
-		@Override
-		public int getVersion() {
-			return VERSION;
-		}
-
-		TypeSerializerConfigSnapshot getSerializerConfigSnapshot() {
-			return serializerConfigSnapshot;
-		}
-	}
+        public byte[] getSerializerBytes() {
+            return serializerBytes;
+        }
+    }
 }
