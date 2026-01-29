@@ -20,7 +20,6 @@ from __future__ import print_function
 import io
 import os
 import platform
-import re
 import sys
 from distutils.command.build_ext import build_ext
 from shutil import copytree, copy, rmtree
@@ -263,14 +262,7 @@ try:
                   "is complete, or do this in the flink-python directory of the flink source "
                   "directory.")
             sys.exit(-1)
-    if re.search('dev.*$', VERSION) is not None:
-        apache_flink_libraries_dependency = 'apache-flink-libraries==%s' % VERSION
-    else:
-        split_versions = VERSION.split('.')
-        split_versions[-1] = str(int(split_versions[-1]) + 1)
-        NEXT_VERSION = '.'.join(split_versions)
-        apache_flink_libraries_dependency = 'apache-flink-libraries>=%s,<%s' % \
-                                            (VERSION, NEXT_VERSION)
+    apache_flink_libraries_dependency = 'apache-flink-libraries==%s' % VERSION
 
     script_names = ["pyflink-shell.sh", "find-flink-home.sh"]
     scripts = [os.path.join(SCRIPTS_TEMP_PATH, script) for script in script_names]
@@ -317,16 +309,15 @@ try:
         'pyflink.bin': ['*']}
 
     install_requires = ['py4j==0.10.9.7', 'python-dateutil>=2.8.0,<3',
-                        'apache-beam>=2.43.0,<2.49.0',
+                        'apache-beam>=2.43.0,<2.52.0',
                         'cloudpickle>=2.2.0', 'avro-python3>=1.8.1,!=1.9.2',
                         'pytz>=2018.3', 'fastavro>=1.1.0,!=1.8.0', 'requests>=2.26.0',
                         'protobuf>=3.19.0',
-                        'numpy>=1.22.4',
+                        'numpy>=1.21.4',
                         'pandas>=1.3.0',
-                        'pyarrow>=5.0.0',
-                        'pemja==0.4.1;platform_system != "Windows"',
+                        'pyarrow>=3.0.0',
+                        'pemja==0.3.0;platform_system != "Windows"',
                         'httplib2>=0.19.0',
-                        'ruamel.yaml>=0.18.4',
                         apache_flink_libraries_dependency]
 
     setup(
