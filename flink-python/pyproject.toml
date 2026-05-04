@@ -21,7 +21,7 @@ requires = [
     "packaging>=20.5; platform_machine=='arm64'",  # macos M1
     "setuptools>=18.0",
     "wheel",
-    "apache-beam>=2.43.0,<2.49.0",
+    "apache-beam>=2.43.0,<2.62.0",
     "cython>=0.29.24",
     "fastavro>=1.1.0,!=1.8.0",
     "cython>=0.29.24,<3; sys_platform == 'darwin' and python_version == '3.8'",
